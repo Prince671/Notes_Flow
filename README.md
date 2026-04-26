@@ -119,7 +119,7 @@ NotesFlow/
 ### 1️⃣ Clone the Repository
 
 ```bash
-git clone https://github.com/Prince671/NotesFlow.git
+git clone https://github.com/Prince671/Notes_Flow.git
 cd NotesFlow
 ```
 
