@@ -51,14 +51,6 @@ import {
   FileImage,
   File,
   AlertTriangle,
-  Folder,
-  FolderOpen,
-  FolderPlus,
-  FolderX,
-  FolderEdit,
-  MoveRight,
-  ChevronRight,
-  ChevronLeft,
 } from "lucide-react";
 import axios from "axios";
 import jsPDF from "jspdf";
@@ -165,18 +157,6 @@ const injectGlobalStyles = () => {
       box-shadow: var(--card-hover-shadow);
     }
     .note-card:active { transform: translateY(-1px); }
-    /* Folder sidebar */
-    .folder-sidebar {
-      transition: width 0.3s cubic-bezier(0.22,1,0.36,1), opacity 0.3s ease;
-    }
-    .folder-item {
-      transition: background 0.15s ease, transform 0.15s ease;
-    }
-    .folder-item:hover { transform: translateX(2px); }
-    /* Create note form tabs */
-    .form-tab {
-      transition: all 0.2s ease;
-    }
     .canvas-cursor-pen { cursor: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMyAyMWwxLjUtNS41TDE4IDIuNWEyIDIgMCAwIDEgMi44MjggMi44MjhMMTMgMTMgMyAyMXoiIGZpbGw9IiM2MzY2ZjEiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==') 0 24, crosshair; }
     .canvas-cursor-eraser { cursor: cell; }
     .canvas-cursor-shape { cursor: crosshair; }
@@ -377,13 +357,7 @@ const SkeletonCard = () => (
 );
 
 // ── White Canvas Component ────────────────────────────────────────────────────
-const WhiteCanvas = ({
-  onClose,
-  onSave,
-  existingCanvasUrl,
-  noteId,
-  initialCanvasName = "",
-}) => {
+const WhiteCanvas = ({ onClose, onSave, existingCanvasUrl, noteId }) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [tool, setTool] = useState("pen");
@@ -397,7 +371,6 @@ const WhiteCanvas = ({
   const [fillMode, setFillMode] = useState(false);
   const [fontSize, setFontSize] = useState(20);
   const [fontFamily, setFontFamily] = useState("Arial");
-  const [canvasName, setCanvasName] = useState(initialCanvasName);
   // Text overlay input
   const [textInput, setTextInput] = useState("");
   const [textPos, setTextPos] = useState(null); // {x, y} canvas coords for pending text
@@ -891,7 +864,7 @@ const WhiteCanvas = ({
       const blob = await new Promise((resolve) =>
         canvas.toBlob(resolve, "image/png"),
       );
-      await onSave(blob, canvasName.trim());
+      await onSave(blob);
     } catch (err) {
       console.error("Canvas save error:", err);
     } finally {
@@ -995,21 +968,6 @@ const WhiteCanvas = ({
                 {noteId ? "Editing canvas drawing" : "Create a new drawing"}
               </p>
             </div>
-            {/* Canvas name input */}
-            <input
-              type="text"
-              value={canvasName}
-              onChange={(e) => setCanvasName(e.target.value)}
-              placeholder="Drawing name (optional)"
-              maxLength={80}
-              className="hidden sm:block text-sm px-3 py-1.5 rounded-xl border outline-none transition-all focus:border-[var(--accent-primary)] focus:shadow-[0_0_0_3px_var(--accent-light)]"
-              style={{
-                background: "var(--bg-tertiary)",
-                borderColor: "var(--border-color)",
-                color: "var(--text-primary)",
-                width: "180px",
-              }}
-            />
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -1343,8 +1301,6 @@ const NoteCard = ({
   onDownload,
   onCanvas,
   onView,
-  onMoveToFolder,
-  folderName,
   getFullUrl,
   formatDate,
   getPriorityColor,
@@ -1451,15 +1407,7 @@ const NoteCard = ({
               className="text-[11px] px-2 py-0.5 rounded-full font-semibold flex items-center gap-0.5"
               style={{ background: "rgba(99,102,241,0.12)", color: "#6366f1" }}
             >
-              <Brush size={9} /> {note.canvasName || "canvas"}
-            </span>
-          )}
-          {folderName && (
-            <span
-              className="text-[11px] px-2 py-0.5 rounded-full font-semibold flex items-center gap-0.5"
-              style={{ background: "rgba(245,158,11,0.12)", color: "#d97706" }}
-            >
-              <Folder size={9} /> {folderName}
+              <Brush size={9} /> canvas
             </span>
           )}
           {imageAttachments.length > 0 && (
@@ -1733,17 +1681,6 @@ const NoteCard = ({
             {note.canvasImage ? "Edit Canvas" : "Add Canvas"}
           </span>
         </button>
-        {onMoveToFolder && (
-          <button
-            onClick={() => onMoveToFolder(note)}
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-all border-none cursor-pointer"
-            style={{ color: "#d97706", background: "rgba(245,158,11,0.08)" }}
-            title="Move to folder"
-          >
-            <MoveRight size={12} />
-            <span className="hidden sm:inline">Move</span>
-          </button>
-        )}
         <button
           onClick={() => onDelete(note._id)}
           disabled={deletingId === note._id}
@@ -2428,19 +2365,6 @@ const Notes = () => {
   const [canvasExistingUrl, setCanvasExistingUrl] = useState(null);
   const [syncIndicator, setSyncIndicator] = useState(false);
 
-  // ── Folder state ───────────────────────────────────────────────────────────
-  const [folders, setFolders] = useState([]);
-  const [folderSidebarOpen, setFolderSidebarOpen] = useState(false);
-  const [selectedFolderId, setSelectedFolderId] = useState(null); // null = All Notes
-  const [showCreateFolder, setShowCreateFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [newFolderColor, setNewFolderColor] = useState("#6366f1");
-  const [newFolderIcon, setNewFolderIcon] = useState("📁");
-  const [creatingFolder, setCreatingFolder] = useState(false);
-  const [editingFolder, setEditingFolder] = useState(null); // {_id, name, color, icon}
-  const [movingNote, setMovingNote] = useState(null); // note being moved to folder
-  const [deletingFolderId, setDeletingFolderId] = useState(null);
-
   // ── Confirm modal state ────────────────────────────────────────────────────
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
@@ -2475,7 +2399,6 @@ const Notes = () => {
 
   const API_BASE = import.meta.env.VITE_API_BASE + "/notes";
   const AUTH_BASE = import.meta.env.VITE_API_BASE + "/auth";
-  const FOLDER_BASE = import.meta.env.VITE_API_BASE + "/folders";
 
   // ── Theme ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -2529,8 +2452,6 @@ const Notes = () => {
     createdAt: n.createdAt ?? n.created_at ?? n.created ?? null,
     attachments: n.attachments ?? [],
     canvasImage: n.canvasImage ?? null,
-    canvasName: n.canvasName ?? "",
-    folderId: n.folderId ?? null,
   });
 
   const getFullUrl = (url) => {
@@ -2613,152 +2534,12 @@ const Notes = () => {
     return () => clearInterval(interval);
   }, [currentUser, fetchNotes]);
 
-  // ── Folder Fetch ───────────────────────────────────────────────────────────
-  const fetchFolders = useCallback(async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await axios.get(`${FOLDER_BASE}/fetch`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      setFolders(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("Fetch folders error:", err);
-    }
-  }, [FOLDER_BASE]);
-
-  useEffect(() => {
-    if (currentUser) fetchFolders();
-  }, [currentUser, fetchFolders]);
-
-  // ── Create Folder ──────────────────────────────────────────────────────────
-  const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) {
-      addToast("Enter a folder name", "warning");
-      return;
-    }
-    setCreatingFolder(true);
-    try {
-      const token = localStorage.getItem("token");
-      const res = await axios.post(
-        `${FOLDER_BASE}/create`,
-        {
-          name: newFolderName.trim(),
-          color: newFolderColor,
-          icon: newFolderIcon,
-        },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      setFolders((prev) => [...prev, res.data.folder]);
-      setNewFolderName("");
-      setNewFolderColor("#6366f1");
-      setNewFolderIcon("📁");
-      setShowCreateFolder(false);
-      addToast("Folder created!", "success");
-    } catch (err) {
-      addToast(err.response?.data?.error || "Failed to create folder", "error");
-    } finally {
-      setCreatingFolder(false);
-    }
-  };
-
-  // ── Update Folder ──────────────────────────────────────────────────────────
-  const handleUpdateFolder = async () => {
-    if (!editingFolder) return;
-    try {
-      const token = localStorage.getItem("token");
-      const res = await axios.put(
-        `${FOLDER_BASE}/update/${editingFolder._id}`,
-        {
-          name: editingFolder.name,
-          color: editingFolder.color,
-          icon: editingFolder.icon,
-        },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      setFolders((prev) =>
-        prev.map((f) => (f._id === editingFolder._id ? res.data.folder : f)),
-      );
-      setEditingFolder(null);
-      addToast("Folder updated!", "success");
-    } catch (err) {
-      addToast(err.response?.data?.error || "Failed to update folder", "error");
-    }
-  };
-
-  // ── Delete Folder ──────────────────────────────────────────────────────────
-  const handleDeleteFolder = (folder) => {
-    showConfirm({
-      title: "Delete Folder",
-      message: `Delete "${folder.name}"? Notes inside will be moved to All Notes.`,
-      confirmLabel: "Delete Folder",
-      confirmColor: "#ef4444",
-      icon: <FolderX size={26} style={{ color: "#ef4444" }} />,
-      onConfirm: async () => {
-        closeConfirm();
-        setDeletingFolderId(folder._id);
-        try {
-          const token = localStorage.getItem("token");
-          await axios.delete(`${FOLDER_BASE}/delete/${folder._id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          setFolders((prev) => prev.filter((f) => f._id !== folder._id));
-          // Un-assign notes locally
-          setNotes((prev) =>
-            prev.map((n) =>
-              n.folderId === folder._id ? { ...n, folderId: null } : n,
-            ),
-          );
-          if (selectedFolderId === folder._id) setSelectedFolderId(null);
-          addToast("Folder deleted", "success");
-        } catch (err) {
-          addToast(
-            err.response?.data?.error || "Failed to delete folder",
-            "error",
-          );
-        } finally {
-          setDeletingFolderId(null);
-        }
-      },
-    });
-  };
-
-  // ── Move Note to Folder ────────────────────────────────────────────────────
-  const handleMoveNoteToFolder = async (note, folderId) => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await axios.patch(
-        `${FOLDER_BASE}/move-note/${note._id}`,
-        { folderId: folderId || null },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      setNotes((prev) =>
-        prev.map((n) =>
-          n._id === note._id
-            ? normalizeNote({ ...n, folderId: folderId || null })
-            : n,
-        ),
-      );
-      const folderName = folders.find((f) => f._id === folderId)?.name;
-      addToast(
-        folderId ? `Moved to "${folderName}"` : "Removed from folder",
-        "success",
-      );
-      setMovingNote(null);
-    } catch (err) {
-      addToast(err.response?.data?.error || "Failed to move note", "error");
-    }
-  };
-
   // ── Filter + Sort ──────────────────────────────────────────────────────────
   useEffect(() => {
     let filtered = [...notes];
     filtered = filtered.filter((n) =>
       showArchived ? !!n.archived : !n.archived,
     );
-    // Folder filter
-    if (selectedFolderId) {
-      filtered = filtered.filter((n) => n.folderId === selectedFolderId);
-    }
     if (selectedFilter !== "all") {
       if (selectedFilter === "starred")
         filtered = filtered.filter((n) => !!n.starred);
@@ -2788,15 +2569,7 @@ const Notes = () => {
       return sortOrder === "asc" ? -cmp : cmp;
     });
     setFilteredNotes(filtered);
-  }, [
-    notes,
-    searchQuery,
-    selectedFilter,
-    showArchived,
-    sortBy,
-    sortOrder,
-    selectedFolderId,
-  ]);
+  }, [notes, searchQuery, selectedFilter, showArchived, sortBy, sortOrder]);
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
   const handleAddNote = async (e) => {
@@ -2823,7 +2596,6 @@ const Notes = () => {
           .filter(Boolean)
           .join(","),
       );
-      if (selectedFolderId) formData.append("folderId", selectedFolderId);
       selectedFiles.forEach((file) => formData.append("files", file));
       const res = await axios.post(`${API_BASE}/add`, formData, {
         headers: {
@@ -2835,8 +2607,6 @@ const Notes = () => {
       if (rawNote) {
         setNotes((prev) => [normalizeNote(rawNote), ...prev]);
         addToast("Note added!", "success");
-        // Refresh folder counts
-        fetchFolders();
       }
       setTitle("");
       setDescription("");
@@ -3735,12 +3505,11 @@ const Notes = () => {
   };
 
   // ── Canvas Save ────────────────────────────────────────────────────────────
-  const handleCanvasSave = async (blob, canvasName = "") => {
+  const handleCanvasSave = async (blob) => {
     try {
       const token = localStorage.getItem("token");
       const formData = new FormData();
       formData.append("canvasImage", blob, "canvas.png");
-      if (canvasName) formData.append("canvasName", canvasName);
       if (canvasNoteId) {
         const res = await axios.put(
           `${API_BASE}/update/${canvasNoteId}`,
@@ -3760,10 +3529,9 @@ const Notes = () => {
             ),
           );
       } else {
-        formData.append("title", canvasName || "Canvas Drawing");
+        formData.append("title", "Canvas Drawing");
         formData.append("desc", "Created with White Canvas");
         formData.append("priority", "medium");
-        if (selectedFolderId) formData.append("folderId", selectedFolderId);
         const res = await axios.post(`${API_BASE}/add`, formData, {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -3771,10 +3539,7 @@ const Notes = () => {
           },
         });
         const rawNote = res.data?.note ?? res.data;
-        if (rawNote) {
-          setNotes((prev) => [normalizeNote(rawNote), ...prev]);
-          fetchFolders();
-        }
+        if (rawNote) setNotes((prev) => [normalizeNote(rawNote), ...prev]);
       }
       addToast("Canvas saved!", "success");
       setShowCanvas(false);
@@ -3824,18 +3589,6 @@ const Notes = () => {
       if (e.key === "Escape") {
         if (confirmModal.isOpen) {
           closeConfirm();
-          return;
-        }
-        if (movingNote) {
-          setMovingNote(null);
-          return;
-        }
-        if (editingFolder) {
-          setEditingFolder(null);
-          return;
-        }
-        if (showCreateFolder) {
-          setShowCreateFolder(false);
           return;
         }
         if (showCanvas) {
@@ -4073,26 +3826,6 @@ const Notes = () => {
                   Synced {timeAgo(lastRefreshed)}
                 </span>
               </div>
-
-              {/* Folder toggle */}
-              <button
-                onClick={() => setFolderSidebarOpen((v) => !v)}
-                title="Toggle Folders"
-                className={
-                  iconBtnCls +
-                  " hover:bg-[var(--bg-hover)] hover:text-[var(--accent-primary)]"
-                }
-                style={{
-                  background: folderSidebarOpen
-                    ? "var(--accent-light)"
-                    : "var(--bg-tertiary)",
-                  color: folderSidebarOpen
-                    ? "var(--accent-primary)"
-                    : "var(--text-secondary)",
-                }}
-              >
-                <FolderOpen size={17} />
-              </button>
 
               <input
                 type="file"
@@ -4565,65 +4298,6 @@ const Notes = () => {
                     </div>
                   )}
                 </div>
-                {/* Folder selector */}
-                {folders.length > 0 && (
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      style={{ color: "var(--text-secondary)" }}
-                      className={formLabelCls}
-                    >
-                      Save to Folder
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedFolderId(null)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
-                        style={{
-                          background: !selectedFolderId
-                            ? "var(--accent-light)"
-                            : "var(--bg-tertiary)",
-                          color: !selectedFolderId
-                            ? "var(--accent-primary)"
-                            : "var(--text-secondary)",
-                          borderColor: !selectedFolderId
-                            ? "var(--accent-primary)"
-                            : "var(--border-color)",
-                        }}
-                      >
-                        <Layers size={11} /> No Folder
-                      </button>
-                      {folders.map((f) => (
-                        <button
-                          key={f._id}
-                          type="button"
-                          onClick={() =>
-                            setSelectedFolderId(
-                              selectedFolderId === f._id ? null : f._id,
-                            )
-                          }
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all"
-                          style={{
-                            background:
-                              selectedFolderId === f._id
-                                ? `${f.color}18`
-                                : "var(--bg-tertiary)",
-                            color:
-                              selectedFolderId === f._id
-                                ? f.color
-                                : "var(--text-secondary)",
-                            borderColor:
-                              selectedFolderId === f._id
-                                ? f.color
-                                : "var(--border-color)",
-                          }}
-                        >
-                          <span>{f.icon}</span> {f.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
                 <div className="flex gap-3 pt-1">
                   <button
                     type="button"
@@ -4657,408 +4331,249 @@ const Notes = () => {
         </>
       )}
 
-      {/* ── Main content with optional folder sidebar ── */}
-      <div className="flex max-w-[1400px] mx-auto">
-        {/* ── Folder Sidebar ── */}
-        {folderSidebarOpen && (
-          <aside
-            className="folder-sidebar shrink-0 sticky top-[65px] h-[calc(100vh-65px)] overflow-y-auto scrollbar-thin border-r"
-            style={{
-              width: "240px",
-              background: "var(--bg-secondary)",
-              borderColor: "var(--border-color)",
-            }}
-          >
-            <div className="p-4 flex flex-col gap-1">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-3">
-                <h3
-                  className="text-xs font-bold uppercase tracking-wider"
-                  style={{ color: "var(--text-tertiary)" }}
-                >
-                  Folders
-                </h3>
-                <button
-                  onClick={() => setShowCreateFolder(true)}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:bg-[var(--accent-light)] border-none cursor-pointer"
-                  style={{
-                    color: "var(--accent-primary)",
-                    background: "transparent",
-                  }}
-                  title="New folder"
-                >
-                  <FolderPlus size={15} />
-                </button>
-              </div>
-
-              {/* All Notes */}
+      {/* ── Main content ── */}
+      <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        {/* Search + controls bar */}
+        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+          <div className="relative flex-1">
+            <Search
+              size={16}
+              className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ color: "var(--text-tertiary)" }}
+            />
+            <input
+              type="text"
+              style={{
+                background: "var(--bg-secondary)",
+                borderColor: "var(--border-color)",
+                color: "var(--text-primary)",
+              }}
+              className={`${formInputCls} border pl-11 pr-4 py-2.5 rounded-2xl`}
+              placeholder="Search notes by title, content, or tag..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
               <button
-                onClick={() => setSelectedFolderId(null)}
-                className="folder-item w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all border-none cursor-pointer text-left"
-                style={{
-                  background: !selectedFolderId
-                    ? "var(--accent-light)"
-                    : "transparent",
-                  color: !selectedFolderId
-                    ? "var(--accent-primary)"
-                    : "var(--text-secondary)",
-                }}
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center transition-all hover:bg-[var(--bg-hover)]"
+                style={{ color: "var(--text-tertiary)" }}
               >
-                <Layers size={15} />
-                <span className="flex-1">All Notes</span>
-                <span
-                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                  style={{
-                    background: !selectedFolderId
-                      ? "var(--accent-primary)"
-                      : "var(--bg-tertiary)",
-                    color: !selectedFolderId ? "#fff" : "var(--text-tertiary)",
-                  }}
-                >
-                  {notes.filter((n) => !n.archived).length}
-                </span>
+                <X size={14} />
               </button>
-
-              {/* Folder list */}
-              {folders.map((folder) => {
-                const count = notes.filter(
-                  (n) => n.folderId === folder._id && !n.archived,
-                ).length;
-                const isActive = selectedFolderId === folder._id;
-                return (
-                  <div key={folder._id} className="group relative">
-                    <button
-                      onClick={() =>
-                        setSelectedFolderId(isActive ? null : folder._id)
-                      }
-                      className="folder-item w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all border-none cursor-pointer text-left"
-                      style={{
-                        background: isActive
-                          ? `${folder.color}18`
-                          : "transparent",
-                        color: isActive
-                          ? folder.color
-                          : "var(--text-secondary)",
-                      }}
-                    >
-                      <span style={{ fontSize: "14px" }}>{folder.icon}</span>
-                      <span className="flex-1 truncate">{folder.name}</span>
-                      <span
-                        className="text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
-                        style={{
-                          background: isActive
-                            ? folder.color
-                            : "var(--bg-tertiary)",
-                          color: isActive ? "#fff" : "var(--text-tertiary)",
-                        }}
-                      >
-                        {count}
-                      </span>
-                    </button>
-                    {/* Edit/delete on hover */}
-                    <div className="absolute right-1 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingFolder({ ...folder });
-                        }}
-                        className="w-6 h-6 rounded-md flex items-center justify-center transition-all hover:bg-[var(--bg-hover)] border-none cursor-pointer"
-                        style={{
-                          color: "var(--text-tertiary)",
-                          background: "var(--bg-secondary)",
-                        }}
-                      >
-                        <FolderEdit size={11} />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteFolder(folder);
-                        }}
-                        disabled={deletingFolderId === folder._id}
-                        className="w-6 h-6 rounded-md flex items-center justify-center transition-all hover:bg-red-50 hover:text-red-500 border-none cursor-pointer disabled:opacity-40"
-                        style={{
-                          color: "var(--text-tertiary)",
-                          background: "var(--bg-secondary)",
-                        }}
-                      >
-                        <FolderX size={11} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {folders.length === 0 && (
-                <p
-                  className="text-xs text-center py-6"
-                  style={{ color: "var(--text-tertiary)" }}
-                >
-                  No folders yet.
-                  <br />
-                  <button
-                    onClick={() => setShowCreateFolder(true)}
-                    className="text-[var(--accent-primary)] underline cursor-pointer border-none bg-transparent mt-1"
-                  >
-                    Create one
-                  </button>
-                </p>
+            )}
+          </div>
+          <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="px-3 py-2.5 rounded-xl border text-sm font-medium cursor-pointer outline-none"
+              style={{ ...selectStyle, ...inputStyle, minWidth: "110px" }}
+            >
+              <option value="date">By Date</option>
+              <option value="title">By Title</option>
+              <option value="priority">By Priority</option>
+            </select>
+            <button
+              onClick={() =>
+                setSortOrder((o) => (o === "desc" ? "asc" : "desc"))
+              }
+              className={
+                iconBtnCls +
+                " hover:bg-[var(--bg-hover)] hover:text-[var(--accent-primary)] shrink-0"
+              }
+              style={{
+                background: "var(--bg-secondary)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border-color)",
+              }}
+              title={
+                sortOrder === "desc" ? "Sort ascending" : "Sort descending"
+              }
+            >
+              {sortOrder === "desc" ? (
+                <SortDesc size={17} />
+              ) : (
+                <SortAsc size={17} />
               )}
-            </div>
-          </aside>
+            </button>
+            <button
+              onClick={() =>
+                setViewMode((v) => (v === "grid" ? "list" : "grid"))
+              }
+              className={
+                iconBtnCls +
+                " hover:bg-[var(--bg-hover)] hover:text-[var(--accent-primary)] shrink-0"
+              }
+              style={{
+                background: "var(--bg-secondary)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border-color)",
+              }}
+              title="Toggle view"
+            >
+              <Layers size={17} />
+            </button>
+          </div>
+        </div>
+
+        {/* Filter chips */}
+        <div className="flex gap-2 mb-5 overflow-x-auto pb-1 scrollbar-thin">
+          {filterOptions.map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setSelectedFilter(f.id)}
+              className="px-3.5 py-1.5 rounded-full text-xs font-semibold shrink-0 border transition-all hover:-translate-y-0.5"
+              style={{
+                background:
+                  selectedFilter === f.id
+                    ? "linear-gradient(135deg, #6366f1, #8b5cf6)"
+                    : "var(--bg-secondary)",
+                color:
+                  selectedFilter === f.id ? "#fff" : "var(--text-secondary)",
+                borderColor:
+                  selectedFilter === f.id
+                    ? "transparent"
+                    : "var(--border-color)",
+                boxShadow:
+                  selectedFilter === f.id
+                    ? "0 4px 12px rgba(99,102,241,0.35)"
+                    : "none",
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Stats bar */}
+        {notes.length > 0 && (
+          <div className="mb-6 animate-fade-in">
+            <StatsBar notes={notes} />
+          </div>
         )}
 
-        <main className="flex-1 min-w-0 px-4 sm:px-6 py-6 sm:py-8">
-          {/* Search + controls bar */}
-          <div className="flex flex-col sm:flex-row gap-3 mb-6">
-            <div className="relative flex-1">
-              <Search
-                size={16}
-                className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
-                style={{ color: "var(--text-tertiary)" }}
-              />
-              <input
-                type="text"
-                style={{
-                  background: "var(--bg-secondary)",
-                  borderColor: "var(--border-color)",
-                  color: "var(--text-primary)",
-                }}
-                className={`${formInputCls} border pl-11 pr-4 py-2.5 rounded-2xl`}
-                placeholder="Search notes by title, content, or tag..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center transition-all hover:bg-[var(--bg-hover)]"
-                  style={{ color: "var(--text-tertiary)" }}
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-            <div className="flex gap-2 flex-wrap sm:flex-nowrap">
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="px-3 py-2.5 rounded-xl border text-sm font-medium cursor-pointer outline-none"
-                style={{ ...selectStyle, ...inputStyle, minWidth: "110px" }}
-              >
-                <option value="date">By Date</option>
-                <option value="title">By Title</option>
-                <option value="priority">By Priority</option>
-              </select>
-              <button
-                onClick={() =>
-                  setSortOrder((o) => (o === "desc" ? "asc" : "desc"))
-                }
-                className={
-                  iconBtnCls +
-                  " hover:bg-[var(--bg-hover)] hover:text-[var(--accent-primary)] shrink-0"
-                }
-                style={{
-                  background: "var(--bg-secondary)",
-                  color: "var(--text-secondary)",
-                  border: "1px solid var(--border-color)",
-                }}
-                title={
-                  sortOrder === "desc" ? "Sort ascending" : "Sort descending"
-                }
-              >
-                {sortOrder === "desc" ? (
-                  <SortDesc size={17} />
-                ) : (
-                  <SortAsc size={17} />
-                )}
-              </button>
-              <button
-                onClick={() =>
-                  setViewMode((v) => (v === "grid" ? "list" : "grid"))
-                }
-                className={
-                  iconBtnCls +
-                  " hover:bg-[var(--bg-hover)] hover:text-[var(--accent-primary)] shrink-0"
-                }
-                style={{
-                  background: "var(--bg-secondary)",
-                  color: "var(--text-secondary)",
-                  border: "1px solid var(--border-color)",
-                }}
-                title="Toggle view"
-              >
-                <Layers size={17} />
-              </button>
-            </div>
-          </div>
+        {/* Notes count */}
+        <div className="flex items-center justify-between mb-4">
+          <h2
+            className="text-sm font-bold"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            {showArchived ? "Archived" : "Active"} Notes
+            <span
+              className="ml-2 px-2 py-0.5 rounded-full text-xs font-semibold"
+              style={{
+                background: "var(--accent-light)",
+                color: "var(--accent-primary)",
+              }}
+            >
+              {filteredNotes.length}
+            </span>
+          </h2>
+          <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+            {syncIndicator && (
+              <span className="animate-pulse">Syncing... </span>
+            )}
+            Auto-sync every 30s
+          </p>
+        </div>
 
-          {/* Filter chips */}
-          <div className="flex gap-2 mb-5 overflow-x-auto pb-1 scrollbar-thin">
-            {filterOptions.map((f) => (
-              <button
-                key={f.id}
-                onClick={() => setSelectedFilter(f.id)}
-                className="px-3.5 py-1.5 rounded-full text-xs font-semibold shrink-0 border transition-all hover:-translate-y-0.5"
-                style={{
-                  background:
-                    selectedFilter === f.id
-                      ? "linear-gradient(135deg, #6366f1, #8b5cf6)"
-                      : "var(--bg-secondary)",
-                  color:
-                    selectedFilter === f.id ? "#fff" : "var(--text-secondary)",
-                  borderColor:
-                    selectedFilter === f.id
-                      ? "transparent"
-                      : "var(--border-color)",
-                  boxShadow:
-                    selectedFilter === f.id
-                      ? "0 4px 12px rgba(99,102,241,0.35)"
-                      : "none",
-                }}
-              >
-                {f.label}
-              </button>
+        {/* Notes grid/list */}
+        {loading ? (
+          <div
+            className={`grid gap-4 ${viewMode === "grid" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1"}`}
+          >
+            {Array.from({ length: 6 }, (_, i) => (
+              <SkeletonCard key={i} />
             ))}
           </div>
-
-          {/* Stats bar */}
-          {notes.length > 0 && (
-            <div className="mb-6 animate-fade-in">
-              <StatsBar notes={notes} />
-            </div>
-          )}
-
-          {/* Notes count */}
-          <div className="flex items-center justify-between mb-4">
-            <h2
-              className="text-sm font-bold"
-              style={{ color: "var(--text-secondary)" }}
+        ) : filteredNotes.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+            <div
+              className="w-20 h-20 rounded-3xl flex items-center justify-center mb-5"
+              style={{ background: "var(--accent-light)" }}
             >
-              {showArchived ? "Archived" : "Active"} Notes
-              <span
-                className="ml-2 px-2 py-0.5 rounded-full text-xs font-semibold"
+              <Sparkles size={32} style={{ color: "var(--accent-primary)" }} />
+            </div>
+            <h3
+              className="text-xl font-bold mb-2"
+              style={{ color: "var(--text-primary)" }}
+            >
+              {searchQuery
+                ? "No matching notes"
+                : showArchived
+                  ? "No archived notes"
+                  : "No notes yet"}
+            </h3>
+            <p
+              className="text-sm mb-6 max-w-xs"
+              style={{ color: "var(--text-tertiary)" }}
+            >
+              {searchQuery
+                ? "Try a different search term"
+                : "Create your first note to get started"}
+            </p>
+            {!searchQuery && !showArchived && (
+              <button
+                onClick={() => setShowForm(true)}
+                className="flex items-center gap-2 px-6 py-3 rounded-2xl text-white text-sm font-bold transition-all hover:-translate-y-0.5 border-none cursor-pointer"
                 style={{
-                  background: "var(--accent-light)",
-                  color: "var(--accent-primary)",
+                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                  boxShadow: "0 6px 20px rgba(99,102,241,0.4)",
                 }}
               >
-                {filteredNotes.length}
-              </span>
-            </h2>
-            <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-              {syncIndicator && (
-                <span className="animate-pulse">Syncing... </span>
-              )}
-              Auto-sync every 30s
-            </p>
+                <Plus size={18} /> Create Note
+              </button>
+            )}
           </div>
-
-          {/* Notes grid/list */}
-          {loading ? (
-            <div
-              className={`grid gap-4 ${viewMode === "grid" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1"}`}
-            >
-              {Array.from({ length: 6 }, (_, i) => (
-                <SkeletonCard key={i} />
-              ))}
-            </div>
-          ) : filteredNotes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+        ) : (
+          <div
+            className={`grid gap-4 ${viewMode === "grid" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 max-w-3xl"}`}
+          >
+            {addingSkeletonCount > 0 && <SkeletonCard />}
+            {filteredNotes.map((note, idx) => (
               <div
-                className="w-20 h-20 rounded-3xl flex items-center justify-center mb-5"
-                style={{ background: "var(--accent-light)" }}
+                key={note._id}
+                style={{ animationDelay: `${idx * 0.04}s` }}
+                className="animate-slide-in-up"
               >
-                <Sparkles
-                  size={32}
-                  style={{ color: "var(--accent-primary)" }}
+                <NoteCard
+                  note={note}
+                  isExpanded={clickedId === note._id}
+                  isHovered={hoveredId === note._id}
+                  onExpand={() =>
+                    setClickedId((id) => (id === note._id ? null : note._id))
+                  }
+                  onHover={() => setHoveredId(note._id)}
+                  onLeave={() => setHoveredId(null)}
+                  onView={(n) => setViewingNote(n)}
+                  onEdit={(n) => {
+                    setEditingNote({ ...n });
+                    setSelectedFiles([]);
+                  }}
+                  onDelete={handleDeleteNote}
+                  onStar={toggleStar}
+                  onArchive={toggleArchive}
+                  onCopy={copyNote}
+                  onShare={shareNote}
+                  onDownload={downloadNote}
+                  onCanvas={(n) => {
+                    setShowCanvas(true);
+                    setCanvasNoteId(n._id);
+                    setCanvasExistingUrl(
+                      n.canvasImage ? getFullUrl(n.canvasImage) : null,
+                    );
+                  }}
+                  getFullUrl={getFullUrl}
+                  formatDate={formatDate}
+                  getPriorityColor={getPriorityColor}
+                  deletingId={deletingId}
                 />
               </div>
-              <h3
-                className="text-xl font-bold mb-2"
-                style={{ color: "var(--text-primary)" }}
-              >
-                {searchQuery
-                  ? "No matching notes"
-                  : showArchived
-                    ? "No archived notes"
-                    : "No notes yet"}
-              </h3>
-              <p
-                className="text-sm mb-6 max-w-xs"
-                style={{ color: "var(--text-tertiary)" }}
-              >
-                {searchQuery
-                  ? "Try a different search term"
-                  : "Create your first note to get started"}
-              </p>
-              {!searchQuery && !showArchived && (
-                <button
-                  onClick={() => setShowForm(true)}
-                  className="flex items-center gap-2 px-6 py-3 rounded-2xl text-white text-sm font-bold transition-all hover:-translate-y-0.5 border-none cursor-pointer"
-                  style={{
-                    background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                    boxShadow: "0 6px 20px rgba(99,102,241,0.4)",
-                  }}
-                >
-                  <Plus size={18} /> Create Note
-                </button>
-              )}
-            </div>
-          ) : (
-            <div
-              className={`grid gap-4 ${viewMode === "grid" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid-cols-1 max-w-3xl"}`}
-            >
-              {addingSkeletonCount > 0 && <SkeletonCard />}
-              {filteredNotes.map((note, idx) => (
-                <div
-                  key={note._id}
-                  style={{ animationDelay: `${idx * 0.04}s` }}
-                  className="animate-slide-in-up"
-                >
-                  <NoteCard
-                    note={note}
-                    isExpanded={clickedId === note._id}
-                    isHovered={hoveredId === note._id}
-                    onExpand={() =>
-                      setClickedId((id) => (id === note._id ? null : note._id))
-                    }
-                    onHover={() => setHoveredId(note._id)}
-                    onLeave={() => setHoveredId(null)}
-                    onView={(n) => setViewingNote(n)}
-                    onEdit={(n) => {
-                      setEditingNote({ ...n });
-                      setSelectedFiles([]);
-                    }}
-                    onDelete={handleDeleteNote}
-                    onStar={toggleStar}
-                    onArchive={toggleArchive}
-                    onCopy={copyNote}
-                    onShare={shareNote}
-                    onDownload={downloadNote}
-                    onCanvas={(n) => {
-                      setShowCanvas(true);
-                      setCanvasNoteId(n._id);
-                      setCanvasExistingUrl(
-                        n.canvasImage ? getFullUrl(n.canvasImage) : null,
-                      );
-                    }}
-                    onMoveToFolder={(n) => setMovingNote(n)}
-                    folderName={
-                      folders.find((f) => f._id === note.folderId)?.name || null
-                    }
-                    getFullUrl={getFullUrl}
-                    formatDate={formatDate}
-                    getPriorityColor={getPriorityColor}
-                    deletingId={deletingId}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-        </main>
-      </div>
-      {/* end flex wrapper */}
+            ))}
+          </div>
+        )}
+      </main>
 
       {/* ── View Note Modal ── */}
       {viewingNote && (
@@ -5501,533 +5016,7 @@ const Notes = () => {
           onSave={handleCanvasSave}
           existingCanvasUrl={canvasExistingUrl}
           noteId={canvasNoteId}
-          initialCanvasName={
-            canvasNoteId
-              ? notes.find((n) => n._id === canvasNoteId)?.canvasName || ""
-              : ""
-          }
         />
-      )}
-
-      {/* ── Move Note to Folder Modal ── */}
-      {movingNote && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
-            onClick={() => setMovingNote(null)}
-          />
-          <div
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92%] max-w-sm z-[10000] rounded-2xl animate-scale-in"
-            style={{
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--border-color)",
-              boxShadow: "0 25px 60px rgba(0,0,0,0.3)",
-            }}
-          >
-            <div className="p-6 flex flex-col gap-4">
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center"
-                  style={{ background: "rgba(245,158,11,0.12)" }}
-                >
-                  <MoveRight size={22} style={{ color: "#d97706" }} />
-                </div>
-                <div>
-                  <h3
-                    className="font-bold text-base"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    Move to Folder
-                  </h3>
-                  <p
-                    className="text-xs"
-                    style={{ color: "var(--text-tertiary)" }}
-                  >
-                    "{movingNote.title || "Untitled"}"
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                {/* No folder option */}
-                <button
-                  onClick={() => handleMoveNoteToFolder(movingNote, null)}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left cursor-pointer"
-                  style={{
-                    background: !movingNote.folderId
-                      ? "var(--accent-light)"
-                      : "var(--bg-tertiary)",
-                    borderColor: !movingNote.folderId
-                      ? "var(--accent-primary)"
-                      : "transparent",
-                    color: !movingNote.folderId
-                      ? "var(--accent-primary)"
-                      : "var(--text-secondary)",
-                  }}
-                >
-                  <Layers size={16} />
-                  <span>No Folder (All Notes)</span>
-                  {!movingNote.folderId && (
-                    <span className="ml-auto text-[11px] font-bold">
-                      Current
-                    </span>
-                  )}
-                </button>
-                {folders.map((folder) => (
-                  <button
-                    key={folder._id}
-                    onClick={() =>
-                      handleMoveNoteToFolder(movingNote, folder._id)
-                    }
-                    className="flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all text-left cursor-pointer"
-                    style={{
-                      background:
-                        movingNote.folderId === folder._id
-                          ? `${folder.color}18`
-                          : "var(--bg-tertiary)",
-                      borderColor:
-                        movingNote.folderId === folder._id
-                          ? folder.color
-                          : "transparent",
-                      color:
-                        movingNote.folderId === folder._id
-                          ? folder.color
-                          : "var(--text-secondary)",
-                    }}
-                  >
-                    <span style={{ fontSize: "18px" }}>{folder.icon}</span>
-                    <span className="flex-1">{folder.name}</span>
-                    <span
-                      className="text-[10px]"
-                      style={{ color: "var(--text-tertiary)" }}
-                    >
-                      {notes.filter((n) => n.folderId === folder._id).length}{" "}
-                      notes
-                    </span>
-                    {movingNote.folderId === folder._id && (
-                      <span className="ml-2 text-[11px] font-bold">
-                        Current
-                      </span>
-                    )}
-                  </button>
-                ))}
-                {folders.length === 0 && (
-                  <div className="text-center py-4">
-                    <p
-                      className="text-sm mb-3"
-                      style={{ color: "var(--text-tertiary)" }}
-                    >
-                      No folders yet.
-                    </p>
-                    <button
-                      onClick={() => {
-                        setMovingNote(null);
-                        setShowCreateFolder(true);
-                      }}
-                      className={btnPrimary + " mx-auto"}
-                      style={{
-                        background: "linear-gradient(135deg,#6366f1,#8b5cf6)",
-                      }}
-                    >
-                      <FolderPlus size={15} /> Create Folder
-                    </button>
-                  </div>
-                )}
-              </div>
-              <button
-                onClick={() => setMovingNote(null)}
-                className={btnSecondary + " justify-center"}
-                style={{
-                  background: "var(--bg-tertiary)",
-                  color: "var(--text-primary)",
-                  borderColor: "var(--border-color)",
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* ── Create Folder Modal ── */}
-      {showCreateFolder && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
-            onClick={() => setShowCreateFolder(false)}
-          />
-          <div
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92%] max-w-sm z-[10000] rounded-2xl animate-scale-in"
-            style={{
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--border-color)",
-              boxShadow: "0 25px 60px rgba(0,0,0,0.3)",
-            }}
-          >
-            <div className="p-6 flex flex-col gap-4">
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center"
-                  style={{ background: "rgba(99,102,241,0.12)" }}
-                >
-                  <FolderPlus size={22} style={{ color: "#6366f1" }} />
-                </div>
-                <h3
-                  className="font-bold text-base"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  New Folder
-                </h3>
-              </div>
-              {/* Icon picker */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  className={formLabelCls}
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Icon
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    "📁",
-                    "📂",
-                    "🗂️",
-                    "📚",
-                    "💼",
-                    "🎨",
-                    "🔬",
-                    "💡",
-                    "🚀",
-                    "⭐",
-                    "🎯",
-                    "🏠",
-                    "💻",
-                    "🎵",
-                    "📊",
-                  ].map((ic) => (
-                    <button
-                      key={ic}
-                      type="button"
-                      onClick={() => setNewFolderIcon(ic)}
-                      className="w-9 h-9 rounded-xl text-base flex items-center justify-center transition-all border-2 cursor-pointer"
-                      style={{
-                        borderColor:
-                          newFolderIcon === ic
-                            ? "var(--accent-primary)"
-                            : "transparent",
-                        background:
-                          newFolderIcon === ic
-                            ? "var(--accent-light)"
-                            : "var(--bg-tertiary)",
-                      }}
-                    >
-                      {ic}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Color picker */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  className={formLabelCls}
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Color
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    "#6366f1",
-                    "#8b5cf6",
-                    "#ec4899",
-                    "#ef4444",
-                    "#f97316",
-                    "#f59e0b",
-                    "#10b981",
-                    "#14b8a6",
-                    "#3b82f6",
-                    "#06b6d4",
-                    "#64748b",
-                  ].map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setNewFolderColor(c)}
-                      className="w-7 h-7 rounded-full border-4 cursor-pointer transition-all hover:scale-110"
-                      style={{
-                        background: c,
-                        borderColor:
-                          newFolderColor === c
-                            ? "var(--text-primary)"
-                            : "transparent",
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-              {/* Name */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  className={formLabelCls}
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Folder Name
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  style={{
-                    background: "var(--bg-tertiary)",
-                    borderColor: "var(--border-color)",
-                    color: "var(--text-primary)",
-                  }}
-                  className={`${formInputCls} border`}
-                  placeholder="e.g. Work, Personal, Ideas..."
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  maxLength={40}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCreateFolder();
-                  }}
-                />
-              </div>
-              {/* Preview */}
-              <div
-                className="flex items-center gap-3 px-4 py-3 rounded-xl"
-                style={{
-                  background: `${newFolderColor}12`,
-                  border: `1px solid ${newFolderColor}30`,
-                }}
-              >
-                <span style={{ fontSize: "20px" }}>{newFolderIcon}</span>
-                <span
-                  className="font-semibold text-sm"
-                  style={{ color: newFolderColor }}
-                >
-                  {newFolderName || "Folder Preview"}
-                </span>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowCreateFolder(false)}
-                  className={btnSecondary + " flex-1 justify-center"}
-                  style={{
-                    background: "var(--bg-tertiary)",
-                    color: "var(--text-primary)",
-                    borderColor: "var(--border-color)",
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateFolder}
-                  disabled={creatingFolder || !newFolderName.trim()}
-                  className={btnPrimary + " flex-1 justify-center"}
-                  style={{
-                    background: `linear-gradient(135deg, ${newFolderColor}, ${newFolderColor}cc)`,
-                  }}
-                >
-                  {creatingFolder ? (
-                    "Creating..."
-                  ) : (
-                    <>
-                      <FolderPlus size={15} /> Create
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* ── Edit Folder Modal ── */}
-      {editingFolder && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
-            onClick={() => setEditingFolder(null)}
-          />
-          <div
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92%] max-w-sm z-[10000] rounded-2xl animate-scale-in"
-            style={{
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--border-color)",
-              boxShadow: "0 25px 60px rgba(0,0,0,0.3)",
-            }}
-          >
-            <div className="p-6 flex flex-col gap-4">
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center"
-                  style={{ background: "rgba(99,102,241,0.12)" }}
-                >
-                  <FolderEdit size={22} style={{ color: "#6366f1" }} />
-                </div>
-                <h3
-                  className="font-bold text-base"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  Edit Folder
-                </h3>
-              </div>
-              {/* Icon picker */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  className={formLabelCls}
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Icon
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    "📁",
-                    "📂",
-                    "🗂️",
-                    "📚",
-                    "💼",
-                    "🎨",
-                    "🔬",
-                    "💡",
-                    "🚀",
-                    "⭐",
-                    "🎯",
-                    "🏠",
-                    "💻",
-                    "🎵",
-                    "📊",
-                  ].map((ic) => (
-                    <button
-                      key={ic}
-                      type="button"
-                      onClick={() =>
-                        setEditingFolder((p) => ({ ...p, icon: ic }))
-                      }
-                      className="w-9 h-9 rounded-xl text-base flex items-center justify-center transition-all border-2 cursor-pointer"
-                      style={{
-                        borderColor:
-                          editingFolder.icon === ic
-                            ? "var(--accent-primary)"
-                            : "transparent",
-                        background:
-                          editingFolder.icon === ic
-                            ? "var(--accent-light)"
-                            : "var(--bg-tertiary)",
-                      }}
-                    >
-                      {ic}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Color picker */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  className={formLabelCls}
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Color
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    "#6366f1",
-                    "#8b5cf6",
-                    "#ec4899",
-                    "#ef4444",
-                    "#f97316",
-                    "#f59e0b",
-                    "#10b981",
-                    "#14b8a6",
-                    "#3b82f6",
-                    "#06b6d4",
-                    "#64748b",
-                  ].map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() =>
-                        setEditingFolder((p) => ({ ...p, color: c }))
-                      }
-                      className="w-7 h-7 rounded-full border-4 cursor-pointer transition-all hover:scale-110"
-                      style={{
-                        background: c,
-                        borderColor:
-                          editingFolder.color === c
-                            ? "var(--text-primary)"
-                            : "transparent",
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-              {/* Name */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  className={formLabelCls}
-                  style={{ color: "var(--text-secondary)" }}
-                >
-                  Folder Name
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  style={{
-                    background: "var(--bg-tertiary)",
-                    borderColor: "var(--border-color)",
-                    color: "var(--text-primary)",
-                  }}
-                  className={`${formInputCls} border`}
-                  value={editingFolder.name}
-                  onChange={(e) =>
-                    setEditingFolder((p) => ({ ...p, name: e.target.value }))
-                  }
-                  maxLength={40}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleUpdateFolder();
-                  }}
-                />
-              </div>
-              {/* Preview */}
-              <div
-                className="flex items-center gap-3 px-4 py-3 rounded-xl"
-                style={{
-                  background: `${editingFolder.color}12`,
-                  border: `1px solid ${editingFolder.color}30`,
-                }}
-              >
-                <span style={{ fontSize: "20px" }}>{editingFolder.icon}</span>
-                <span
-                  className="font-semibold text-sm"
-                  style={{ color: editingFolder.color }}
-                >
-                  {editingFolder.name || "Folder Preview"}
-                </span>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setEditingFolder(null)}
-                  className={btnSecondary + " flex-1 justify-center"}
-                  style={{
-                    background: "var(--bg-tertiary)",
-                    color: "var(--text-primary)",
-                    borderColor: "var(--border-color)",
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpdateFolder}
-                  disabled={!editingFolder.name.trim()}
-                  className={btnPrimary + " flex-1 justify-center"}
-                  style={{
-                    background: `linear-gradient(135deg, ${editingFolder.color}, ${editingFolder.color}cc)`,
-                  }}
-                >
-                  <FolderEdit size={15} /> Save
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
       )}
 
       {/* ── Floating buttons ── */}
