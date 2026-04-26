@@ -1,141 +1,216 @@
-```
-# 📝 NotesFlow
+📝 NotesFlow
 
-A full-stack **Notes Management Application** built with **Node.js (Express)** for the backend and **React.js** for the frontend.  
-This app allows users to create, manage, and organize their notes efficiently with authentication and protected routes.
+A full-stack Notes Management Application built using Node.js (Express) and React.js (with Tailwind CSS).
+It provides a powerful and scalable platform to create, organize, and interact with notes — enhanced with AI capabilities and modern UI features.
 
 ---
 
-## 🚀 Features
-- User Authentication (Sign Up / Login / Logout)
-- Protected Routes (Only accessible when logged in)
+🚀 Live Features
+
+🔐 Authentication & Security
+
+- User Registration & Login
+- JWT-based Authentication
+- Protected & Public Routes
+- Forgot Password & Reset Password
+- Secure middleware-based route protection
+
+---
+
+🗂️ Notes & Folder Management
+
 - Create, Read, Update, Delete (CRUD) Notes
-- Organized folder structure for scalability
-- Responsive frontend built with React
-- Secure backend with Express and middleware
+- Folder-based organization system
+- Add notes inside folders
+- Shareable notes via link
+- Attach images and files to notes
 
 ---
 
-## 🏗️ Project Structure
+🤖 AI Integration
 
-```
-````
-NOTESMANAGER
+- Ask questions related to your notes
+- General-purpose AI assistant
+- Smart responses using AI service
+- Integrated AI chat panel
+
+---
+
+🎨 UI/UX & Frontend
+
+- Built with React + Tailwind CSS
+- Fully Responsive Design (Mobile + Desktop)
+- Skeleton loading & smooth UI experience
+- Custom components & reusable structure
+- 404 Page Not Found handling
+
+---
+
+🧠 Advanced Features
+
+- Canvas support for interactive usage
+- Sidebar AI Agent interface
+- Clean and modular frontend architecture
+- Optimized state handling
+
+---
+
+🏗️ Project Structure
+
+NotesFlow/
 │
 ├── BackEnd/
 │   ├── config/
+│   │   ├── cloudinary.config.js
+│   │   └── db.js
+│   │
 │   ├── middleware/
+│   │   └── auth.js
+│   │
 │   ├── models/
-│   ├── node_modules/
+│   │   ├── chat.model.js
+│   │   ├── notes.model.js
+│   │   └── user.model.js
+│   │
 │   ├── routes/
-│   ├── .env
-│   ├── .gitignore
+│   │   ├── chat.route.js
+│   │   ├── notes.route.js
+│   │   └── user.routes.js
+│   │
+│   ├── services/
+│   │   └── ai.service.js
+│   │
 │   ├── app.js
-│   ├── package-lock.json
-│   └── package.json
+│   ├── package.json
+│   └── .env
 │
 ├── FrontEnd/
-│   ├── dist/
-│   ├── node_modules/
-│   ├── public/
 │   ├── src/
 │   │   ├── assets/
-│   │   └── components/
-│   │       ├── Login_SingUp.css
-│   │       ├── Login.css
-│   │       ├── Login.jsx
-│   │       ├── Notes.css
-│   │       ├── Notes.jsx
-│   │       ├── NotFound.css
-│   │       ├── NotFound.jsx
-│   │       ├── ProtectedRoute.jsx
-│   │       └── ...
+│   │   ├── components/
+│   │   │   ├── AIAgentSidebar.jsx
+│   │   │   ├── Login.jsx
+│   │   │   ├── Register.jsx
+│   │   │   ├── Notes.jsx
+│   │   │   ├── ProtectedRoute.jsx
+│   │   │   ├── PublicRoute.jsx
+│   │   │   ├── ForgotPassword.jsx
+│   │   │   ├── ResetPassword.jsx
+│   │   │   ├── SharedNote.jsx
+│   │   │   └── NotFound.jsx
+│   │   │
+│   │   ├── App.jsx
+│   │   ├── main.jsx
+│   │   └── index.css
+│   │
+│   ├── index.html
 │   ├── package.json
-│   └── ...
+│   └── .env
 │
 └── README.md
-````
-````
 
 ---
 
-## ⚙️ Tech Stack
-### Backend
+⚙️ Tech Stack
+
+Frontend
+
+- React.js
+- Tailwind CSS
+- React Router
+
+Backend
+
 - Node.js
 - Express.js
-- MongoDB (via Mongoose)
-- JWT Authentication
-- Middleware for protection
+- MongoDB (Mongoose)
 
-### Frontend
-- React.js
-- React Router DOM
-- CSS for styling
+Other Tools
+
+- Cloudinary (for file uploads)
+- JWT (Authentication)
+- AI Service Integration
 
 ---
 
-## 📦 Installation & Setup
+🛠️ Installation & Setup
 
-### 1️⃣ Clone the repository
-```bash
-git clone https://github.com/your-username/NotesManager.git
-cd NotesManager
-````
+1️⃣ Clone Repository
 
-### 2️⃣ Backend Setup
+git clone https://github.com/Prince671/NotesFlow.git
+cd NotesFlow
 
-```bash
+---
+
+2️⃣ Backend Setup
+
 cd BackEnd
 npm install
-```
 
-Create a `.env` file inside `BackEnd/`:
+Create ".env" file:
 
-```
 PORT=5000
-MONGO_URI=your_mongodb_connection_string
+MONGO_URI=your_mongodb_uri
 JWT_SECRET=your_secret_key
-```
+CLOUDINARY_URL=your_cloudinary_url
 
-Run backend server:
+Run backend:
 
-```bash
 npm start
-```
 
-### 3️⃣ Frontend Setup
+---
 
-```bash
+3️⃣ Frontend Setup
+
 cd FrontEnd
 npm install
-```
-
-Run frontend React app:
-
-```bash
 npm run dev
-```
 
 ---
 
-## 🚦 Running the App
+🔐 Environment Variables
 
-* Backend → `http://localhost:3000`
-* Frontend → `http://localhost:5173`
+Backend
 
----
+- "MONGO_URI"
+- "JWT_SECRET"
+- "CLOUDINARY_URL"
 
-## 📸 Screenshots
+Frontend
 
-<img width="787" height="645" alt="image" src="https://github.com/user-attachments/assets/871625b4-d6ce-42b9-af61-9d04f746bf01" />
-<img width="787" height="646" alt="image" src="https://github.com/user-attachments/assets/da983ace-fa4d-4ad5-91c5-70504097dffa" />
-
-
+- API Base URL (if required)
 
 ---
 
-## 🤝 Contributing
+📌 Key Highlights
 
-Contributions are welcome! Feel free to open issues or submit PRs.
+- Clean and scalable folder structure
+- Full authentication system
+- AI-powered assistant inside app
+- Folder-based note management
+- File/image upload support
+- Shareable notes
+- Responsive modern UI
 
 ---
+
+📸 Future Improvements
+
+- Real-time collaboration
+- Note version history
+- Dark mode toggle
+- Drag & drop folders/notes
+- Voice-based AI interaction
+
+---
+
+👨‍💻 Author
+
+Prince Soni
+GitHub: https://github.com/Prince671/Notes_Flow
+
+---
+
+📄 License
+
+This project is licensed under the MIT License.
