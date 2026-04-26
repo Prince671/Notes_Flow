@@ -124,7 +124,7 @@ router.post("/forgot-password", async (req, res) => {
     );
 
     // ✅ Create reset link
-    const resetLink = `http://notes-flow-w.vercel.app/reset-password?token=${resetToken}`;
+    const resetLink = `http://notes-flo-w.vercel.app/reset-password?token=${resetToken}`;
 
     // ✅ Send Email
     try {
