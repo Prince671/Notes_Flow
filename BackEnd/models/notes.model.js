@@ -1,19 +1,47 @@
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 
+// ── Folder Schema ────────────────────────────────────────────────────────────
+const folderSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    color: {
+      type: String,
+      default: '#6366f1',
+    },
+    icon: {
+      type: String,
+      default: '📁',
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+      index: true,
+    },
+  },
+  { timestamps: true }
+);
+
+folderSchema.index({ name: 1, createdBy: 1 }, { unique: true });
+
+const Folder = mongoose.model('Folder', folderSchema);
+
+// ── Attachment Sub-Schema ────────────────────────────────────────────────────
 const attachmentSchema = new mongoose.Schema(
   {
     url:  { type: String, required: true },
-    type: {
-      type: String,
-      required: true,
-      enum: ['image', 'pdf', 'doc', 'excel', 'ppt', 'video', 'audio', 'file'],
-    },
+    type: { type: String, required: true, enum: ['image', 'pdf'] },
     name: { type: String, required: true },
   },
   { _id: false }
 );
 
+// ── Note Schema ──────────────────────────────────────────────────────────────
 const notesSchema = new mongoose.Schema(
   {
     title: {
@@ -32,6 +60,14 @@ const notesSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
+      index: true,
+    },
+
+    // Folder reference — null means "no folder" (inbox)
+    folderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Folder',
+      default: null,
       index: true,
     },
 
@@ -68,6 +104,12 @@ const notesSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Canvas name / label
+    canvasName: {
+      type: String,
+      default: 'Canvas Drawing',
+    },
+
     // Raw Fabric.js / custom JSON so the canvas is re-editable
     canvasData: {
       type: String,
@@ -95,4 +137,5 @@ notesSchema.index(
 );
 
 const Note = mongoose.model('Note', notesSchema);
-module.exports = Note;
+
+module.exports = { Note, Folder };

@@ -51,6 +51,15 @@ import {
   FileImage,
   File,
   AlertTriangle,
+  Folder,
+  FolderPlus,
+  FolderOpen,
+  ChevronRight,
+  ChevronLeft,
+  MoveRight,
+  Inbox,
+  MoreVertical,
+  Pencil,
 } from "lucide-react";
 import axios from "axios";
 import jsPDF from "jspdf";
@@ -204,9 +213,21 @@ const injectGlobalStyles = () => {
     .note-prose strong { font-weight: 700; }
     .note-prose em { font-style: italic; }
     .note-prose hr { border: none; border-top: 1px solid var(--border-color); margin: 0.8em 0; }
+    @media (max-width: 1023px) {
+      .main-content-area { margin-left: 0 !important; }
+    }
     @media (max-width: 640px) {
       .mobile-full-modal { position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; transform: none !important; width: 100% !important; max-width: 100% !important; max-height: 100% !important; border-radius: 0 !important; overflow-y: auto !important; }
+      .canvas-modal-mobile { border-radius: 0 !important; height: 100dvh !important; max-height: 100dvh !important; }
+      .canvas-toolbar-mobile { overflow-x: auto !important; flex-wrap: nowrap !important; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+      .canvas-toolbar-mobile::-webkit-scrollbar { display: none; }
+      .canvas-tool-btn-mobile { width: 30px !important; height: 30px !important; }
+      .canvas-color-mobile { width: 18px !important; height: 18px !important; }
+      .fab-mobile { width: 40px !important; height: 40px !important; border-radius: 14px !important; }
     }
+    .folder-sidebar { transition: width 0.3s cubic-bezier(0.22,1,0.36,1), opacity 0.25s ease; }
+    .folder-item { transition: background 0.15s ease, transform 0.15s ease; cursor: pointer; }
+    .folder-item:hover { transform: translateX(2px); }
   `;
   document.head.appendChild(style);
 };
@@ -357,7 +378,13 @@ const SkeletonCard = () => (
 );
 
 // ── White Canvas Component ────────────────────────────────────────────────────
-const WhiteCanvas = ({ onClose, onSave, existingCanvasUrl, noteId }) => {
+const WhiteCanvas = ({
+  onClose,
+  onSave,
+  existingCanvasUrl,
+  noteId,
+  initialCanvasName,
+}) => {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [tool, setTool] = useState("pen");
@@ -371,6 +398,10 @@ const WhiteCanvas = ({ onClose, onSave, existingCanvasUrl, noteId }) => {
   const [fillMode, setFillMode] = useState(false);
   const [fontSize, setFontSize] = useState(20);
   const [fontFamily, setFontFamily] = useState("Arial");
+  const [canvasTitle, setCanvasTitle] = useState(
+    initialCanvasName || "Canvas Drawing",
+  );
+  const [editingTitle, setEditingTitle] = useState(false);
   // Text overlay input
   const [textInput, setTextInput] = useState("");
   const [textPos, setTextPos] = useState(null); // {x, y} canvas coords for pending text
@@ -864,7 +895,7 @@ const WhiteCanvas = ({ onClose, onSave, existingCanvasUrl, noteId }) => {
       const blob = await new Promise((resolve) =>
         canvas.toBlob(resolve, "image/png"),
       );
-      await onSave(blob);
+      await onSave(blob, canvasTitle);
     } catch (err) {
       console.error("Canvas save error:", err);
     } finally {
@@ -932,351 +963,392 @@ const WhiteCanvas = ({ onClose, onSave, existingCanvasUrl, noteId }) => {
   ];
 
   return (
-    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 backdrop-blur-md p-2 sm:p-4 animate-fade-in">
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 backdrop-blur-md p-0 sm:p-4 animate-fade-in">
       <div
-        className="flex flex-col w-full max-w-6xl animate-scale-in"
+        className="flex flex-col w-full max-w-6xl animate-scale-in canvas-modal-mobile"
         style={{
-          height: "min(95vh, 720px)",
+          height: "min(95dvh, 720px)",
           background: "var(--bg-secondary)",
           border: "1px solid var(--border-color)",
-          borderRadius: "20px",
+          borderRadius: "0px",
           boxShadow: "0 25px 80px rgba(0,0,0,0.35)",
         }}
       >
-        {/* Header */}
+        {/* On sm+ screens, restore rounded corners */}
+        <style>{`@media(min-width:640px){.canvas-inner{border-radius:20px!important;}}`}</style>
         <div
-          className="flex items-center justify-between px-4 sm:px-5 py-3 border-b shrink-0"
-          style={{ borderColor: "var(--border-color)" }}
+          className="canvas-inner flex flex-col w-full h-full overflow-hidden"
+          style={{ borderRadius: "0px", background: "var(--bg-secondary)" }}
         >
-          <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-white"
-              style={{
-                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-              }}
-            >
-              <Brush size={18} />
-            </div>
-            <div>
-              <h3
-                className="font-bold text-base"
-                style={{ color: "var(--text-primary)" }}
-              >
-                White Canvas
-              </h3>
-              <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
-                {noteId ? "Editing canvas drawing" : "Create a new drawing"}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={downloadCanvas}
-              title="Download PNG"
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all hover:bg-[var(--bg-hover)]"
-              style={{
-                color: "var(--text-secondary)",
-                borderColor: "var(--border-color)",
-              }}
-            >
-              <Download size={13} /> PNG
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-sm font-semibold disabled:opacity-60 transition-all hover:-translate-y-0.5"
-              style={{
-                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                boxShadow: "0 4px 14px rgba(99,102,241,0.4)",
-              }}
-            >
-              <Save size={14} />
-              <span>{saving ? "Saving..." : "Save"}</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-red-50 hover:text-red-500"
-              style={{
-                color: "var(--text-secondary)",
-                background: "var(--bg-tertiary)",
-              }}
-            >
-              <X size={18} />
-            </button>
-          </div>
-        </div>
-
-        {/* Toolbar */}
-        <div
-          className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2.5 border-b shrink-0 overflow-x-auto"
-          style={{
-            borderColor: "var(--border-color)",
-            background: "var(--bg-tertiary)",
-          }}
-        >
+          {/* Header */}
           <div
-            className="flex items-center gap-0.5 p-1 rounded-xl shrink-0 flex-wrap"
-            style={{ background: "var(--bg-hover)" }}
+            className="flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3 border-b shrink-0"
+            style={{ borderColor: "var(--border-color)" }}
           >
-            {tools.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setTool(t.id)}
-                title={t.label}
-                className="w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs"
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center text-white shrink-0"
                 style={{
-                  background:
-                    tool === t.id ? "var(--accent-primary)" : "transparent",
-                  color: tool === t.id ? "#fff" : "var(--text-secondary)",
+                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
                 }}
               >
-                {t.icon}
+                <Brush size={15} />
+              </div>
+              <div className="min-w-0">
+                {editingTitle ? (
+                  <input
+                    autoFocus
+                    value={canvasTitle}
+                    onChange={(e) => setCanvasTitle(e.target.value)}
+                    onBlur={() => setEditingTitle(false)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === "Escape")
+                        setEditingTitle(false);
+                    }}
+                    className="font-bold text-base outline-none border-b-2 bg-transparent"
+                    style={{
+                      color: "var(--text-primary)",
+                      borderColor: "var(--accent-primary)",
+                      minWidth: 140,
+                    }}
+                    maxLength={60}
+                  />
+                ) : (
+                  <button
+                    onClick={() => setEditingTitle(true)}
+                    className="flex items-center gap-1.5 group border-none bg-transparent cursor-pointer p-0"
+                    title="Click to rename"
+                  >
+                    <h3
+                      className="font-bold text-base"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      {canvasTitle}
+                    </h3>
+                    <Pencil
+                      size={12}
+                      className="opacity-0 group-hover:opacity-60 transition-opacity"
+                      style={{ color: "var(--text-tertiary)" }}
+                    />
+                  </button>
+                )}
+                <p
+                  className="text-xs hidden sm:block"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  {noteId ? "Editing canvas drawing" : "New canvas drawing"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={downloadCanvas}
+                title="Download PNG"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all hover:bg-[var(--bg-hover)]"
+                style={{
+                  color: "var(--text-secondary)",
+                  borderColor: "var(--border-color)",
+                }}
+              >
+                <Download size={13} /> PNG
               </button>
-            ))}
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-sm font-semibold disabled:opacity-60 transition-all hover:-translate-y-0.5"
+                style={{
+                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                  boxShadow: "0 4px 14px rgba(99,102,241,0.4)",
+                }}
+              >
+                <Save size={14} />
+                <span>{saving ? "Saving..." : "Save"}</span>
+              </button>
+              <button
+                onClick={onClose}
+                className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-red-50 hover:text-red-500"
+                style={{
+                  color: "var(--text-secondary)",
+                  background: "var(--bg-tertiary)",
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
 
-          {(tool === "rect" ||
-            tool === "circle" ||
-            tool === "triangle" ||
-            tool === "diamond" ||
-            tool === "star") && (
-            <button
-              onClick={() => setFillMode(!fillMode)}
-              title="Toggle fill"
-              className="px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all shrink-0"
-              style={{
-                background: fillMode
-                  ? "var(--accent-primary)"
-                  : "var(--bg-secondary)",
-                color: fillMode ? "#fff" : "var(--text-secondary)",
-                borderColor: "var(--border-color)",
-              }}
+          {/* Toolbar */}
+          <div
+            className="canvas-toolbar-mobile flex items-center gap-2 px-3 sm:px-4 py-2 border-b shrink-0 overflow-x-auto"
+            style={{
+              borderColor: "var(--border-color)",
+              background: "var(--bg-tertiary)",
+            }}
+          >
+            <div
+              className="flex items-center gap-0.5 p-1 rounded-xl shrink-0 flex-wrap"
+              style={{ background: "var(--bg-hover)" }}
             >
-              Fill
-            </button>
-          )}
+              {tools.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTool(t.id)}
+                  title={t.label}
+                  className="canvas-tool-btn-mobile w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs shrink-0"
+                  style={{
+                    background:
+                      tool === t.id ? "var(--accent-primary)" : "transparent",
+                    color: tool === t.id ? "#fff" : "var(--text-secondary)",
+                  }}
+                >
+                  {t.icon}
+                </button>
+              ))}
+            </div>
 
-          {tool === "text" && (
-            <div className="flex items-center gap-1.5 shrink-0">
-              <select
-                value={fontFamily}
-                onChange={(e) => setFontFamily(e.target.value)}
-                className="text-xs px-2 py-1 rounded-lg border"
+            {(tool === "rect" ||
+              tool === "circle" ||
+              tool === "triangle" ||
+              tool === "diamond" ||
+              tool === "star") && (
+              <button
+                onClick={() => setFillMode(!fillMode)}
+                title="Toggle fill"
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all shrink-0"
                 style={{
-                  background: "var(--bg-secondary)",
+                  background: fillMode
+                    ? "var(--accent-primary)"
+                    : "var(--bg-secondary)",
+                  color: fillMode ? "#fff" : "var(--text-secondary)",
                   borderColor: "var(--border-color)",
-                  color: "var(--text-primary)",
                 }}
               >
-                {[
-                  "Arial",
-                  "Georgia",
-                  "Courier New",
-                  "Verdana",
-                  "Times New Roman",
-                  "Comic Sans MS",
-                ].map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
+                Fill
+              </button>
+            )}
+
+            {tool === "text" && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <select
+                  value={fontFamily}
+                  onChange={(e) => setFontFamily(e.target.value)}
+                  className="text-xs px-2 py-1 rounded-lg border"
+                  style={{
+                    background: "var(--bg-secondary)",
+                    borderColor: "var(--border-color)",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  {[
+                    "Arial",
+                    "Georgia",
+                    "Courier New",
+                    "Verdana",
+                    "Times New Roman",
+                    "Comic Sans MS",
+                  ].map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min="8"
+                  max="120"
+                  value={fontSize}
+                  onChange={(e) => setFontSize(+e.target.value)}
+                  className="w-14 text-xs px-2 py-1 rounded-lg border"
+                  style={{
+                    background: "var(--bg-secondary)",
+                    borderColor: "var(--border-color)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+              </div>
+            )}
+
+            <div
+              className="w-px h-6 shrink-0"
+              style={{ background: "var(--border-color)" }}
+            />
+
+            {tool !== "text" && (
+              <div className="flex items-center gap-2 shrink-0">
+                <span
+                  className="text-xs font-medium shrink-0"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  {tool === "eraser" ? "Erase:" : "Size:"}
+                </span>
+                <input
+                  type="range"
+                  min="1"
+                  max="40"
+                  value={lineWidth}
+                  onChange={(e) => setLineWidth(+e.target.value)}
+                  className="w-20 sm:w-24 cursor-pointer"
+                  style={{ accentColor: "var(--accent-primary)" }}
+                />
+                <span
+                  className="text-xs font-bold w-5 text-center"
+                  style={{ color: "var(--text-secondary)" }}
+                >
+                  {lineWidth}
+                </span>
+              </div>
+            )}
+
+            <div
+              className="w-px h-6 shrink-0"
+              style={{ background: "var(--border-color)" }}
+            />
+
+            <div className="flex items-center gap-1 flex-nowrap shrink-0">
+              {COLORS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setColor(c)}
+                  title={c}
+                  className="canvas-color-mobile w-5 h-5 rounded-full transition-all hover:scale-110 shrink-0"
+                  style={{
+                    background: c,
+                    border:
+                      color === c
+                        ? "2px solid var(--accent-primary)"
+                        : "2px solid transparent",
+                    boxShadow:
+                      c === "#ffffff"
+                        ? "0 0 0 1px var(--border-color)"
+                        : color === c
+                          ? "0 0 0 2px var(--accent-light)"
+                          : "0 1px 3px rgba(0,0,0,0.15)",
+                  }}
+                />
+              ))}
               <input
-                type="number"
-                min="8"
-                max="120"
-                value={fontSize}
-                onChange={(e) => setFontSize(+e.target.value)}
-                className="w-14 text-xs px-2 py-1 rounded-lg border"
-                style={{
-                  background: "var(--bg-secondary)",
-                  borderColor: "var(--border-color)",
-                  color: "var(--text-primary)",
-                }}
+                type="color"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                title="Custom color"
+                className="canvas-color-mobile w-5 h-5 rounded-full cursor-pointer overflow-hidden shrink-0"
+                style={{ border: "2px solid var(--border-color)", padding: 0 }}
               />
             </div>
-          )}
 
-          <div
-            className="w-px h-6 shrink-0"
-            style={{ background: "var(--border-color)" }}
-          />
-
-          {tool !== "text" && (
-            <div className="flex items-center gap-2 shrink-0">
-              <span
-                className="text-xs font-medium shrink-0"
-                style={{ color: "var(--text-tertiary)" }}
-              >
-                {tool === "eraser" ? "Erase:" : "Size:"}
-              </span>
-              <input
-                type="range"
-                min="1"
-                max="40"
-                value={lineWidth}
-                onChange={(e) => setLineWidth(+e.target.value)}
-                className="w-20 sm:w-24 cursor-pointer"
-                style={{ accentColor: "var(--accent-primary)" }}
-              />
-              <span
-                className="text-xs font-bold w-5 text-center"
+            <div className="flex items-center gap-1 ml-auto shrink-0">
+              <button
+                onClick={undo}
+                title="Undo (Ctrl+Z)"
+                disabled={historyStep <= 0}
+                className="w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-30 transition-all hover:bg-[var(--bg-hover)]"
                 style={{ color: "var(--text-secondary)" }}
               >
-                {lineWidth}
+                <RotateCcw size={15} />
+              </button>
+              <button
+                onClick={redo}
+                title="Redo"
+                disabled={historyStep >= histRef.current.history.length - 1}
+                className="w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-30 transition-all hover:bg-[var(--bg-hover)]"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                <RotateCcw size={15} style={{ transform: "scaleX(-1)" }} />
+              </button>
+              <button
+                onClick={clearCanvas}
+                title="Clear canvas"
+                className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:bg-red-100 hover:text-red-500"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          </div>
+
+          {/* Canvas area */}
+          <div
+            className="flex-1 relative overflow-hidden"
+            style={{
+              background: "linear-gradient(135deg, #f8f8ff 0%, #f0f0f8 100%)",
+            }}
+          >
+            <div
+              className="absolute inset-0 pointer-events-none opacity-30"
+              style={{
+                backgroundImage:
+                  "linear-gradient(var(--border-color) 1px, transparent 1px), linear-gradient(90deg, var(--border-color) 1px, transparent 1px)",
+                backgroundSize: "24px 24px",
+              }}
+            />
+            <canvas
+              ref={canvasRef}
+              className={`absolute inset-0 w-full h-full touch-none ${getCursorClass()}`}
+              style={{ background: "transparent" }}
+              onMouseDown={startDraw}
+              onMouseMove={draw}
+              onMouseUp={endDraw}
+              onMouseLeave={endDraw}
+              onTouchStart={startDraw}
+              onTouchMove={draw}
+              onTouchEnd={endDraw}
+            />
+
+            {/* Text input overlay */}
+            {textPos && (
+              <div
+                className="absolute"
+                style={{
+                  left: `${(textPos.x / (canvasRef.current?.width || 800)) * 100}%`,
+                  top: `${(textPos.y / (canvasRef.current?.height || 500)) * 100}%`,
+                  transform: "translate(0, -100%)",
+                  zIndex: 100,
+                }}
+              >
+                <input
+                  ref={textInputRef}
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitText();
+                    if (e.key === "Escape") {
+                      setTextPos(null);
+                      setTextInput("");
+                    }
+                  }}
+                  onBlur={commitText}
+                  placeholder="Type here…"
+                  className="outline-none border-b-2 bg-transparent px-1"
+                  style={{
+                    color,
+                    fontSize: `${fontSize}px`,
+                    fontFamily,
+                    borderColor: "#6366f1",
+                    minWidth: "80px",
+                  }}
+                />
+              </div>
+            )}
+
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none">
+              <span
+                className="px-3 py-1 rounded-full text-[10px] font-medium"
+                style={{
+                  background: "rgba(0,0,0,0.08)",
+                  color: "var(--text-tertiary)",
+                }}
+              >
+                {tool === "eraser"
+                  ? "Click and drag to erase"
+                  : tool === "pen"
+                    ? "Click and drag to draw"
+                    : tool === "text"
+                      ? "Click to place text, Enter to confirm"
+                      : tool === "move"
+                        ? "Click a shape to select, then drag to move"
+                        : `Click and drag to draw ${tool}`}
               </span>
             </div>
-          )}
-
-          <div
-            className="w-px h-6 shrink-0"
-            style={{ background: "var(--border-color)" }}
-          />
-
-          <div className="flex items-center gap-1 flex-wrap max-w-[200px] sm:max-w-none shrink-0">
-            {COLORS.map((c) => (
-              <button
-                key={c}
-                onClick={() => setColor(c)}
-                title={c}
-                className="w-5 h-5 rounded-full transition-all hover:scale-110 shrink-0"
-                style={{
-                  background: c,
-                  border:
-                    color === c
-                      ? "2px solid var(--accent-primary)"
-                      : "2px solid transparent",
-                  boxShadow:
-                    c === "#ffffff"
-                      ? "0 0 0 1px var(--border-color)"
-                      : color === c
-                        ? "0 0 0 2px var(--accent-light)"
-                        : "0 1px 3px rgba(0,0,0,0.15)",
-                }}
-              />
-            ))}
-            <input
-              type="color"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-              title="Custom color"
-              className="w-5 h-5 rounded-full cursor-pointer overflow-hidden shrink-0"
-              style={{ border: "2px solid var(--border-color)", padding: 0 }}
-            />
-          </div>
-
-          <div className="flex items-center gap-1 ml-auto shrink-0">
-            <button
-              onClick={undo}
-              title="Undo (Ctrl+Z)"
-              disabled={historyStep <= 0}
-              className="w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-30 transition-all hover:bg-[var(--bg-hover)]"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              <RotateCcw size={15} />
-            </button>
-            <button
-              onClick={redo}
-              title="Redo"
-              disabled={historyStep >= history.length - 1}
-              className="w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-30 transition-all hover:bg-[var(--bg-hover)]"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              <RotateCcw size={15} style={{ transform: "scaleX(-1)" }} />
-            </button>
-            <button
-              onClick={clearCanvas}
-              title="Clear canvas"
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:bg-red-100 hover:text-red-500"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              <Trash2 size={15} />
-            </button>
-          </div>
-        </div>
-
-        {/* Canvas area */}
-        <div
-          className="flex-1 relative overflow-hidden rounded-b-[20px]"
-          style={{
-            background: "linear-gradient(135deg, #f8f8ff 0%, #f0f0f8 100%)",
-          }}
-        >
-          <div
-            className="absolute inset-0 pointer-events-none opacity-30"
-            style={{
-              backgroundImage:
-                "linear-gradient(var(--border-color) 1px, transparent 1px), linear-gradient(90deg, var(--border-color) 1px, transparent 1px)",
-              backgroundSize: "24px 24px",
-            }}
-          />
-          <canvas
-            ref={canvasRef}
-            className={`absolute inset-0 w-full h-full touch-none ${getCursorClass()}`}
-            style={{ background: "transparent" }}
-            onMouseDown={startDraw}
-            onMouseMove={draw}
-            onMouseUp={endDraw}
-            onMouseLeave={endDraw}
-            onTouchStart={startDraw}
-            onTouchMove={draw}
-            onTouchEnd={endDraw}
-          />
-
-          {/* Text input overlay */}
-          {textPos && (
-            <div
-              className="absolute"
-              style={{
-                left: `${(textPos.x / (canvasRef.current?.width || 800)) * 100}%`,
-                top: `${(textPos.y / (canvasRef.current?.height || 500)) * 100}%`,
-                transform: "translate(0, -100%)",
-                zIndex: 100,
-              }}
-            >
-              <input
-                ref={textInputRef}
-                value={textInput}
-                onChange={(e) => setTextInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitText();
-                  if (e.key === "Escape") {
-                    setTextPos(null);
-                    setTextInput("");
-                  }
-                }}
-                onBlur={commitText}
-                placeholder="Type here…"
-                className="outline-none border-b-2 bg-transparent px-1"
-                style={{
-                  color,
-                  fontSize: `${fontSize}px`,
-                  fontFamily,
-                  borderColor: "#6366f1",
-                  minWidth: "80px",
-                }}
-              />
-            </div>
-          )}
-
-          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none">
-            <span
-              className="px-3 py-1 rounded-full text-[10px] font-medium"
-              style={{
-                background: "rgba(0,0,0,0.08)",
-                color: "var(--text-tertiary)",
-              }}
-            >
-              {tool === "eraser"
-                ? "Click and drag to erase"
-                : tool === "pen"
-                  ? "Click and drag to draw"
-                  : tool === "text"
-                    ? "Click to place text, Enter to confirm"
-                    : tool === "move"
-                      ? "Click a shape to select, then drag to move"
-                      : `Click and drag to draw ${tool}`}
-            </span>
           </div>
         </div>
       </div>
@@ -1301,6 +1373,7 @@ const NoteCard = ({
   onDownload,
   onCanvas,
   onView,
+  onMove,
   getFullUrl,
   formatDate,
   getPriorityColor,
@@ -1680,6 +1753,14 @@ const NoteCard = ({
           <span className="hidden sm:inline">
             {note.canvasImage ? "Edit Canvas" : "Add Canvas"}
           </span>
+        </button>
+        <button
+          onClick={() => onMove(note)}
+          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-all border-none cursor-pointer"
+          style={{ color: "#10b981", background: "rgba(16,185,129,0.08)" }}
+        >
+          <MoveRight size={12} />
+          <span className="hidden sm:inline">Move</span>
         </button>
         <button
           onClick={() => onDelete(note._id)}
@@ -2226,10 +2307,8 @@ const ViewNoteModal = ({
             </button>
             <button
               onClick={() => {
-                if (window.confirm("Delete this note?")) {
-                  onDelete(note._id);
-                  onClose();
-                }
+                onDelete(note._id);
+                onClose();
               }}
               disabled={deletingId === note._id}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium cursor-pointer transition-all border-none hover:bg-red-50 disabled:opacity-50"
@@ -2238,6 +2317,590 @@ const ViewNoteModal = ({
               <Trash2 size={14} /> {deletingId === note._id ? "..." : "Delete"}
             </button>
           </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+// ── Create / Edit Folder Modal ────────────────────────────────────────────────
+const FolderFormModal = ({ isOpen, folder, onClose, onSave }) => {
+  const [name, setName] = React.useState(folder?.name || "");
+  const [color, setColor] = React.useState(folder?.color || "#6366f1");
+  const [icon, setIcon] = React.useState(folder?.icon || "📁");
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setName(folder?.name || "");
+      setColor(folder?.color || "#6366f1");
+      setIcon(folder?.icon || "📁");
+    }
+  }, [isOpen, folder]);
+
+  if (!isOpen) return null;
+
+  const FOLDER_COLORS = [
+    "#6366f1",
+    "#8b5cf6",
+    "#ec4899",
+    "#ef4444",
+    "#f97316",
+    "#f59e0b",
+    "#10b981",
+    "#06b6d4",
+    "#3b82f6",
+    "#64748b",
+  ];
+  const FOLDER_ICONS = [
+    "📁",
+    "📂",
+    "📌",
+    "📝",
+    "🎯",
+    "💡",
+    "🔖",
+    "⭐",
+    "🏷️",
+    "🗂️",
+    "📚",
+    "💼",
+    "🎨",
+    "🔬",
+    "🏆",
+  ];
+
+  const handleSave = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    await onSave({ name: name.trim(), color, icon });
+    setSaving(false);
+  };
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
+        onClick={onClose}
+      />
+      <div
+        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92%] max-w-sm z-[10000] rounded-2xl animate-scale-in"
+        style={{
+          background: "var(--bg-secondary)",
+          border: "1px solid var(--border-color)",
+          boxShadow: "0 25px 60px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div className="p-6 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-white"
+                style={{ background: color }}
+              >
+                <span className="text-sm">{icon}</span>
+              </div>
+              <h3
+                className="text-base font-bold"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {folder ? "Edit Folder" : "New Folder"}
+              </h3>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-xl flex items-center justify-center border-none cursor-pointer transition-all hover:bg-[var(--bg-hover)]"
+              style={{
+                color: "var(--text-secondary)",
+                background: "var(--bg-tertiary)",
+              }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label
+              className="text-[11px] font-bold uppercase tracking-[0.8px]"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Folder Name
+            </label>
+            <input
+              autoFocus
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSave()}
+              placeholder="e.g. Work, Personal, Ideas..."
+              maxLength={40}
+              className="w-full px-4 py-2.5 rounded-xl text-sm outline-none border transition-all focus:border-[var(--accent-primary)]"
+              style={{
+                background: "var(--bg-tertiary)",
+                borderColor: "var(--border-color)",
+                color: "var(--text-primary)",
+              }}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label
+              className="text-[11px] font-bold uppercase tracking-[0.8px]"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Icon
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {FOLDER_ICONS.map((ic) => (
+                <button
+                  key={ic}
+                  onClick={() => setIcon(ic)}
+                  className="w-8 h-8 rounded-lg text-base flex items-center justify-center transition-all hover:scale-110 border-none cursor-pointer"
+                  style={{
+                    background:
+                      icon === ic
+                        ? "var(--accent-light)"
+                        : "var(--bg-tertiary)",
+                    outline:
+                      icon === ic ? "2px solid var(--accent-primary)" : "none",
+                  }}
+                >
+                  {ic}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label
+              className="text-[11px] font-bold uppercase tracking-[0.8px]"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Color
+            </label>
+            <div className="flex gap-2 flex-wrap">
+              {FOLDER_COLORS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setColor(c)}
+                  className="w-6 h-6 rounded-full transition-all hover:scale-125 border-none cursor-pointer"
+                  style={{
+                    background: c,
+                    outline: color === c ? `3px solid ${c}` : "none",
+                    outlineOffset: "2px",
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button
+              onClick={onClose}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border cursor-pointer transition-all"
+              style={{
+                background: "var(--bg-tertiary)",
+                color: "var(--text-primary)",
+                borderColor: "var(--border-color)",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!name.trim() || saving}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer transition-all disabled:opacity-50"
+              style={{ background: color, boxShadow: `0 4px 14px ${color}50` }}
+            >
+              {saving ? "Saving..." : folder ? "Save Changes" : "Create Folder"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+// ── Move to Folder Modal ──────────────────────────────────────────────────────
+const MoveToFolderModal = ({ isOpen, note, folders, onClose, onMove }) => {
+  const [selected, setSelected] = React.useState(null);
+  const [moving, setMoving] = React.useState(false);
+
+  React.useEffect(() => {
+    if (isOpen) setSelected(note?.folderId || null);
+  }, [isOpen, note]);
+
+  if (!isOpen || !note) return null;
+
+  const handleMove = async () => {
+    setMoving(true);
+    await onMove(note._id, selected);
+    setMoving(false);
+    onClose();
+  };
+
+  const selectedFolder = folders.find((f) => f._id === selected);
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
+        onClick={onClose}
+      />
+      <div
+        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92%] max-w-sm z-[10000] rounded-2xl animate-scale-in"
+        style={{
+          background: "var(--bg-secondary)",
+          border: "1px solid var(--border-color)",
+          boxShadow: "0 25px 60px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div className="p-6 flex flex-col gap-4">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ background: "rgba(99,102,241,0.12)" }}
+            >
+              <MoveRight size={20} style={{ color: "#6366f1" }} />
+            </div>
+            <div>
+              <h3
+                className="text-base font-bold"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Move Note
+              </h3>
+              <p
+                className="text-xs truncate max-w-[200px]"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                "{note.title || "Untitled"}"
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto scrollbar-thin">
+            <button
+              onClick={() => setSelected(null)}
+              className="folder-item flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left border"
+              style={{
+                background:
+                  selected === null
+                    ? "var(--accent-light)"
+                    : "var(--bg-tertiary)",
+                color:
+                  selected === null
+                    ? "var(--accent-primary)"
+                    : "var(--text-primary)",
+                borderColor:
+                  selected === null ? "var(--accent-primary)" : "transparent",
+              }}
+            >
+              <Inbox
+                size={16}
+                style={{
+                  color:
+                    selected === null
+                      ? "var(--accent-primary)"
+                      : "var(--text-tertiary)",
+                }}
+              />
+              <span className="flex-1">Inbox (No Folder)</span>
+              {selected === null && (
+                <CheckCircle
+                  size={14}
+                  style={{ color: "var(--accent-primary)" }}
+                />
+              )}
+            </button>
+            {folders.map((f) => (
+              <button
+                key={f._id}
+                onClick={() => setSelected(f._id)}
+                className="folder-item flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left border"
+                style={{
+                  background:
+                    selected === f._id ? `${f.color}18` : "var(--bg-tertiary)",
+                  color: selected === f._id ? f.color : "var(--text-primary)",
+                  borderColor: selected === f._id ? f.color : "transparent",
+                }}
+              >
+                <span className="text-base">{f.icon}</span>
+                <span className="flex-1">{f.name}</span>
+                {selected === f._id && (
+                  <CheckCircle size={14} style={{ color: f.color }} />
+                )}
+              </button>
+            ))}
+            {folders.length === 0 && (
+              <p
+                className="text-sm text-center py-4"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                No folders yet. Create one first!
+              </p>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-semibold border cursor-pointer transition-all"
+              style={{
+                background: "var(--bg-tertiary)",
+                color: "var(--text-primary)",
+                borderColor: "var(--border-color)",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleMove}
+              disabled={moving}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer transition-all disabled:opacity-50"
+              style={{
+                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                boxShadow: "0 4px 14px rgba(99,102,241,0.4)",
+              }}
+            >
+              <MoveRight size={14} />
+              {moving
+                ? "Moving..."
+                : `Move${selectedFolder ? ` to ${selectedFolder.name}` : " to Inbox"}`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+// ── Folder Sidebar ────────────────────────────────────────────────────────────
+const FolderSidebar = ({
+  isOpen,
+  onToggle,
+  folders,
+  activeFolderId,
+  onSelectFolder,
+  notes,
+  onCreateFolder,
+  onEditFolder,
+  onDeleteFolder,
+}) => {
+  const [hovered, setHovered] = React.useState(null);
+
+  const getCount = (folderId) =>
+    notes.filter(
+      (n) => !n.archived && (folderId ? n.folderId === folderId : !n.folderId),
+    ).length;
+
+  return (
+    <>
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-[49] lg:hidden"
+          onClick={onToggle}
+        />
+      )}
+      <div
+        className={`fixed left-0 z-[50] flex flex-col folder-sidebar ${isOpen ? "w-64" : "w-0 lg:w-14"} overflow-hidden`}
+        style={{
+          top: 61,
+          bottom: 0,
+          background: "var(--bg-secondary)",
+          borderRight: "1px solid var(--border-color)",
+          boxShadow: isOpen ? "4px 0 24px rgba(0,0,0,0.08)" : "none",
+        }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-3 py-3 border-b shrink-0"
+          style={{ borderColor: "var(--border-color)" }}
+        >
+          {isOpen && (
+            <span
+              className="text-[10px] font-bold uppercase tracking-[1px]"
+              style={{ color: "var(--text-tertiary)" }}
+            >
+              Folders
+            </span>
+          )}
+          <div className="flex items-center gap-1 ml-auto">
+            {isOpen && (
+              <button
+                onClick={onCreateFolder}
+                className="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-all hover:opacity-80"
+                style={{
+                  color: "var(--accent-primary)",
+                  background: "var(--accent-light)",
+                }}
+                title="New Folder"
+              >
+                <FolderPlus size={13} />
+              </button>
+            )}
+            <button
+              onClick={onToggle}
+              className="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-all hover:bg-[var(--bg-hover)]"
+              style={{
+                color: "var(--text-secondary)",
+                background: "var(--bg-tertiary)",
+              }}
+              title={isOpen ? "Collapse" : "Folders"}
+            >
+              {isOpen ? <ChevronLeft size={14} /> : <Folder size={14} />}
+            </button>
+          </div>
+        </div>
+
+        {/* List */}
+        <div className="flex-1 overflow-y-auto scrollbar-thin py-2 px-2 flex flex-col gap-0.5">
+          {/* Inbox */}
+          <button
+            onClick={() => onSelectFolder(null)}
+            onMouseEnter={() => setHovered("inbox")}
+            onMouseLeave={() => setHovered(null)}
+            className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left transition-all border-none cursor-pointer"
+            style={{
+              background:
+                activeFolderId === null
+                  ? "var(--accent-light)"
+                  : hovered === "inbox"
+                    ? "var(--bg-hover)"
+                    : "transparent",
+              color:
+                activeFolderId === null
+                  ? "var(--accent-primary)"
+                  : "var(--text-secondary)",
+            }}
+            title="Inbox"
+          >
+            <Inbox
+              size={14}
+              style={{
+                flexShrink: 0,
+                color:
+                  activeFolderId === null
+                    ? "var(--accent-primary)"
+                    : "var(--text-tertiary)",
+              }}
+            />
+            {isOpen && (
+              <>
+                <span className="flex-1 text-sm font-medium truncate">
+                  Inbox
+                </span>
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
+                  style={{
+                    background:
+                      activeFolderId === null
+                        ? "var(--accent-primary)"
+                        : "var(--bg-tertiary)",
+                    color:
+                      activeFolderId === null ? "#fff" : "var(--text-tertiary)",
+                  }}
+                >
+                  {getCount(null)}
+                </span>
+              </>
+            )}
+          </button>
+
+          {/* Folders */}
+          {folders.map((f) => (
+            <div
+              key={f._id}
+              className="relative group"
+              onMouseEnter={() => setHovered(f._id)}
+              onMouseLeave={() => setHovered(null)}
+            >
+              <button
+                onClick={() => onSelectFolder(f._id)}
+                className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left transition-all border-none cursor-pointer"
+                style={{
+                  background:
+                    activeFolderId === f._id
+                      ? `${f.color}18`
+                      : hovered === f._id
+                        ? "var(--bg-hover)"
+                        : "transparent",
+                  color:
+                    activeFolderId === f._id
+                      ? f.color
+                      : "var(--text-secondary)",
+                }}
+                title={f.name}
+              >
+                <span style={{ fontSize: 14, flexShrink: 0 }}>{f.icon}</span>
+                {isOpen && (
+                  <>
+                    <span className="flex-1 text-sm font-medium truncate">
+                      {f.name}
+                    </span>
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
+                      style={{
+                        background:
+                          activeFolderId === f._id
+                            ? f.color
+                            : "var(--bg-tertiary)",
+                        color:
+                          activeFolderId === f._id
+                            ? "#fff"
+                            : "var(--text-tertiary)",
+                      }}
+                    >
+                      {getCount(f._id)}
+                    </span>
+                  </>
+                )}
+              </button>
+              {isOpen && hovered === f._id && (
+                <div className="absolute right-8 top-1/2 -translate-y-1/2 flex gap-0.5 animate-fade-in">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditFolder(f);
+                    }}
+                    className="w-5 h-5 rounded flex items-center justify-center border-none cursor-pointer hover:bg-[var(--bg-secondary)]"
+                    style={{ color: "var(--text-tertiary)" }}
+                    title="Edit"
+                  >
+                    <Pencil size={10} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteFolder(f);
+                    }}
+                    className="w-5 h-5 rounded flex items-center justify-center border-none cursor-pointer hover:bg-red-100"
+                    style={{ color: "#ef4444" }}
+                    title="Delete"
+                  >
+                    <Trash2 size={10} />
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {isOpen && folders.length === 0 && (
+            <div className="px-2 py-5 text-center">
+              <FolderPlus
+                size={22}
+                className="mx-auto mb-2"
+                style={{ color: "var(--text-tertiary)" }}
+              />
+              <p
+                className="text-xs mb-1"
+                style={{ color: "var(--text-tertiary)" }}
+              >
+                No folders yet
+              </p>
+              <button
+                onClick={onCreateFolder}
+                className="text-xs font-semibold border-none bg-transparent cursor-pointer underline"
+                style={{ color: "var(--accent-primary)" }}
+              >
+                Create one
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -2365,6 +3028,19 @@ const Notes = () => {
   const [canvasExistingUrl, setCanvasExistingUrl] = useState(null);
   const [syncIndicator, setSyncIndicator] = useState(false);
 
+  // ── Folder state ───────────────────────────────────────────────────────────
+  const [folders, setFolders] = useState([]);
+  const [activeFolderId, setActiveFolderId] = useState(null); // null = show inbox
+  const [showAllNotes, setShowAllNotes] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [folderFormModal, setFolderFormModal] = useState({
+    isOpen: false,
+    folder: null,
+  });
+  const [moveModal, setMoveModal] = useState({ isOpen: false, note: null });
+  const [canvasName, setCanvasName] = useState("Canvas Drawing");
+  const [showCanvasNameInput, setShowCanvasNameInput] = useState(false);
+
   // ── Confirm modal state ────────────────────────────────────────────────────
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
@@ -2399,6 +3075,118 @@ const Notes = () => {
 
   const API_BASE = import.meta.env.VITE_API_BASE + "/notes";
   const AUTH_BASE = import.meta.env.VITE_API_BASE + "/auth";
+
+  // ── Fetch Folders ──────────────────────────────────────────────────────────
+  const fetchFolders = useCallback(async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.get(`${API_BASE}/folders/fetch`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      setFolders(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Fetch folders error:", err);
+    }
+  }, [API_BASE]);
+
+  useEffect(() => {
+    if (currentUser) fetchFolders();
+  }, [currentUser, fetchFolders]);
+
+  // ── Folder CRUD handlers ───────────────────────────────────────────────────
+  const handleCreateFolder = async ({ name, color, icon }) => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.post(
+        `${API_BASE}/folders/create`,
+        { name, color, icon },
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        },
+      );
+      setFolders((prev) => [...prev, res.data.folder]);
+      setFolderFormModal({ isOpen: false, folder: null });
+      addToast("Folder created!", "success");
+    } catch (err) {
+      addToast(err.response?.data?.error || "Failed to create folder", "error");
+    }
+  };
+
+  const handleEditFolder = async ({ name, color, icon }) => {
+    const folderId = folderFormModal.folder?._id;
+    if (!folderId) return;
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.put(
+        `${API_BASE}/folders/update/${folderId}`,
+        { name, color, icon },
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        },
+      );
+      setFolders((prev) =>
+        prev.map((f) => (f._id === folderId ? res.data.folder : f)),
+      );
+      setFolderFormModal({ isOpen: false, folder: null });
+      addToast("Folder updated!", "success");
+    } catch (err) {
+      addToast(err.response?.data?.error || "Failed to update folder", "error");
+    }
+  };
+
+  const handleDeleteFolder = (folder) => {
+    showConfirm({
+      title: "Delete Folder",
+      message: `Delete "${folder.name}"? Notes inside will be moved to Inbox.`,
+      confirmLabel: "Delete",
+      confirmColor: "#ef4444",
+      icon: <Trash2 size={26} style={{ color: "#ef4444" }} />,
+      onConfirm: async () => {
+        closeConfirm();
+        try {
+          const token = localStorage.getItem("token");
+          await axios.delete(`${API_BASE}/folders/delete/${folder._id}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          setFolders((prev) => prev.filter((f) => f._id !== folder._id));
+          if (activeFolderId === folder._id) setActiveFolderId(null);
+          setNotes((prev) =>
+            prev.map((n) =>
+              n.folderId === folder._id ? { ...n, folderId: null } : n,
+            ),
+          );
+          addToast("Folder deleted", "success");
+        } catch (err) {
+          addToast("Failed to delete folder", "error");
+        }
+      },
+    });
+  };
+
+  const handleMoveNote = async (noteId, folderId) => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.put(
+        `${API_BASE}/move/${noteId}`,
+        { folderId },
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        },
+      );
+      setNotes((prev) =>
+        prev.map((n) =>
+          n._id === noteId ? { ...n, folderId: folderId || null } : n,
+        ),
+      );
+      const folder = folders.find((f) => f._id === folderId);
+      addToast(
+        folderId ? `Moved to "${folder?.name}"` : "Moved to Inbox",
+        "success",
+      );
+    } catch (err) {
+      addToast("Failed to move note", "error");
+    }
+  };
 
   // ── Theme ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -2452,6 +3240,8 @@ const Notes = () => {
     createdAt: n.createdAt ?? n.created_at ?? n.created ?? null,
     attachments: n.attachments ?? [],
     canvasImage: n.canvasImage ?? null,
+    canvasName: n.canvasName ?? "Canvas Drawing",
+    folderId: n.folderId ?? null,
   });
 
   const getFullUrl = (url) => {
@@ -2540,6 +3330,12 @@ const Notes = () => {
     filtered = filtered.filter((n) =>
       showArchived ? !!n.archived : !n.archived,
     );
+    // Folder filter (only when not showing archived)
+    if (!showArchived && !showAllNotes) {
+      filtered = filtered.filter((n) =>
+        activeFolderId ? n.folderId === activeFolderId : !n.folderId,
+      );
+    }
     if (selectedFilter !== "all") {
       if (selectedFilter === "starred")
         filtered = filtered.filter((n) => !!n.starred);
@@ -2569,7 +3365,16 @@ const Notes = () => {
       return sortOrder === "asc" ? -cmp : cmp;
     });
     setFilteredNotes(filtered);
-  }, [notes, searchQuery, selectedFilter, showArchived, sortBy, sortOrder]);
+  }, [
+    notes,
+    searchQuery,
+    selectedFilter,
+    showArchived,
+    sortBy,
+    sortOrder,
+    activeFolderId,
+    showAllNotes,
+  ]);
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
   const handleAddNote = async (e) => {
@@ -2596,6 +3401,7 @@ const Notes = () => {
           .filter(Boolean)
           .join(","),
       );
+      if (activeFolderId) formData.append("folderId", activeFolderId);
       selectedFiles.forEach((file) => formData.append("files", file));
       const res = await axios.post(`${API_BASE}/add`, formData, {
         headers: {
@@ -3505,12 +4311,13 @@ const Notes = () => {
   };
 
   // ── Canvas Save ────────────────────────────────────────────────────────────
-  const handleCanvasSave = async (blob) => {
+  const handleCanvasSave = async (blob, savedCanvasName) => {
     try {
       const token = localStorage.getItem("token");
       const formData = new FormData();
       formData.append("canvasImage", blob, "canvas.png");
       if (canvasNoteId) {
+        if (savedCanvasName) formData.append("canvasName", savedCanvasName);
         const res = await axios.put(
           `${API_BASE}/update/${canvasNoteId}`,
           formData,
@@ -3529,9 +4336,12 @@ const Notes = () => {
             ),
           );
       } else {
-        formData.append("title", "Canvas Drawing");
+        const cName = savedCanvasName || canvasName || "Canvas Drawing";
+        formData.append("title", cName);
         formData.append("desc", "Created with White Canvas");
+        formData.append("canvasName", cName);
         formData.append("priority", "medium");
+        if (activeFolderId) formData.append("folderId", activeFolderId);
         const res = await axios.post(`${API_BASE}/add`, formData, {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -3545,8 +4355,9 @@ const Notes = () => {
       setShowCanvas(false);
       setCanvasNoteId(null);
       setCanvasExistingUrl(null);
+      setCanvasName("Canvas Drawing");
     } catch (err) {
-      addToast("Failed to save canvas", "error");
+      addToast("Duplicate Canvas Name", "error");
     }
   };
 
@@ -3668,6 +4479,42 @@ const Notes = () => {
         onCancel={closeConfirm}
       />
 
+      {/* ── Folder Form Modal ── */}
+      <FolderFormModal
+        isOpen={folderFormModal.isOpen}
+        folder={folderFormModal.folder}
+        onClose={() => setFolderFormModal({ isOpen: false, folder: null })}
+        onSave={folderFormModal.folder ? handleEditFolder : handleCreateFolder}
+      />
+
+      {/* ── Move to Folder Modal ── */}
+      <MoveToFolderModal
+        isOpen={moveModal.isOpen}
+        note={moveModal.note}
+        folders={folders}
+        onClose={() => setMoveModal({ isOpen: false, note: null })}
+        onMove={handleMoveNote}
+      />
+
+      {/* ── Folder Sidebar ── */}
+      <FolderSidebar
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen((o) => !o)}
+        folders={folders}
+        activeFolderId={activeFolderId}
+        onSelectFolder={(id) => {
+          setActiveFolderId(id);
+          setShowAllNotes(false);
+          setSidebarOpen(false);
+        }}
+        notes={notes}
+        onCreateFolder={() =>
+          setFolderFormModal({ isOpen: true, folder: null })
+        }
+        onEditFolder={(f) => setFolderFormModal({ isOpen: true, folder: f })}
+        onDeleteFolder={handleDeleteFolder}
+      />
+
       {/* ── Download Format Modal ── */}
       {downloadModal && (
         <>
@@ -3783,6 +4630,17 @@ const Notes = () => {
           <div className="flex justify-between items-center gap-3">
             {/* Logo */}
             <div className="flex items-center gap-3 min-w-0">
+              <button
+                onClick={() => setSidebarOpen((o) => !o)}
+                className="w-9 h-9 rounded-xl flex items-center justify-center border-none cursor-pointer transition-all hover:bg-[var(--bg-hover)] shrink-0"
+                style={{
+                  color: "var(--text-secondary)",
+                  background: "var(--bg-tertiary)",
+                }}
+                title="Toggle folder sidebar"
+              >
+                <Folder size={17} />
+              </button>
               <div
                 className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-[var(--shadow-md)] shrink-0"
                 style={{
@@ -4070,9 +4928,9 @@ const Notes = () => {
             onClick={() => setShowForm(false)}
           />
           <div
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] sm:w-[90%] max-w-[640px] z-[1000] animate-scale-in"
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] sm:w-[90%] max-w-[660px] z-[1000] animate-scale-in"
             style={{
-              maxHeight: "92vh",
+              maxHeight: "94vh",
               display: "flex",
               flexDirection: "column",
             }}
@@ -4082,73 +4940,104 @@ const Notes = () => {
               style={{
                 background: "var(--bg-secondary)",
                 borderColor: "var(--border-color)",
-                maxHeight: "92vh",
+                maxHeight: "94vh",
               }}
             >
+              {/* ── Gradient Header ── */}
               <div
-                className="px-5 sm:px-6 py-5 border-b flex justify-between items-center shrink-0"
+                className="px-5 sm:px-7 pt-6 pb-5 shrink-0 relative overflow-hidden"
                 style={{
-                  background: "var(--bg-secondary)",
-                  borderColor: "var(--border-color)",
-                  zIndex: 1,
+                  background:
+                    "linear-gradient(135deg, #6366f1 0%, #8b5cf6 60%, #a78bfa 100%)",
                 }}
               >
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-9 h-9 rounded-xl flex items-center justify-center text-white"
-                    style={{
-                      background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                    }}
-                  >
-                    <Plus size={18} />
-                  </div>
-                  <h3
-                    className="text-lg font-bold"
-                    style={{ color: "var(--text-primary)" }}
-                  >
-                    New Note
-                  </h3>
-                </div>
-                <button
+                {/* Background decoration */}
+                <div
+                  className="absolute top-0 right-0 w-32 h-32 rounded-full opacity-10"
                   style={{
-                    background: "var(--bg-tertiary)",
-                    color: "var(--text-secondary)",
+                    background: "white",
+                    transform: "translate(30%, -30%)",
                   }}
-                  className="w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all hover:bg-[var(--bg-hover)] hover:rotate-90 border-none"
-                  onClick={() => setShowForm(false)}
-                >
-                  <X size={18} />
-                </button>
+                />
+                <div
+                  className="absolute bottom-0 left-12 w-20 h-20 rounded-full opacity-10"
+                  style={{
+                    background: "white",
+                    transform: "translate(-30%, 50%)",
+                  }}
+                />
+
+                <div className="relative flex items-start justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center">
+                        <Plus size={15} className="text-white" />
+                      </div>
+                      <h3 className="text-white font-bold text-lg">
+                        Create New Note
+                      </h3>
+                    </div>
+                    <p className="text-white/70 text-xs">
+                      {activeFolderId ? (
+                        <span>
+                          Adding to{" "}
+                          <strong className="text-white/90">
+                            {
+                              folders.find((f) => f._id === activeFolderId)
+                                ?.name
+                            }
+                          </strong>
+                        </span>
+                      ) : (
+                        "Adding to Inbox"
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    style={{
+                      background: "rgba(255,255,255,0.15)",
+                      color: "white",
+                    }}
+                    className="w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all hover:bg-white/25 hover:rotate-90 border-none shrink-0"
+                    onClick={() => setShowForm(false)}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
+
               <form
                 onSubmit={handleAddNote}
-                className="px-5 sm:px-6 py-5 flex flex-col gap-4 overflow-y-auto scrollbar-thin flex-1"
+                className="px-5 sm:px-6 py-5 flex flex-col gap-5 overflow-y-auto scrollbar-thin flex-1"
               >
+                {/* Title */}
                 <div className="flex flex-col gap-1.5">
                   <label
                     style={{ color: "var(--text-secondary)" }}
                     className={formLabelCls}
                   >
-                    Title
+                    📝 Title
                   </label>
                   <input
                     type="text"
                     style={inputStyle}
-                    className={`${formInputCls} border`}
-                    placeholder="Enter a title..."
+                    className={`${formInputCls} border text-base font-semibold`}
+                    placeholder="Give your note a title..."
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     maxLength={100}
                     autoFocus
                   />
                 </div>
+
+                {/* Tags + Priority */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1.5">
                     <label
                       style={{ color: "var(--text-secondary)" }}
                       className={formLabelCls}
                     >
-                      Tags
+                      🏷️ Tags
                     </label>
                     <input
                       type="text"
@@ -4164,7 +5053,7 @@ const Notes = () => {
                       style={{ color: "var(--text-secondary)" }}
                       className={formLabelCls}
                     >
-                      Priority
+                      ⚡ Priority
                     </label>
                     <select
                       style={{ ...selectStyle, ...inputStyle }}
@@ -4178,12 +5067,14 @@ const Notes = () => {
                     </select>
                   </div>
                 </div>
+
+                {/* Content */}
                 <div className="flex flex-col gap-1.5">
                   <label
                     style={{ color: "var(--text-secondary)" }}
                     className={formLabelCls}
                   >
-                    Content
+                    📄 Content
                   </label>
                   <RichTextEditor
                     value={description}
@@ -4194,13 +5085,14 @@ const Notes = () => {
                     minHeight={160}
                   />
                 </div>
-                {/* File attachment with previews */}
+
+                {/* Attachments */}
                 <div className="flex flex-col gap-1.5">
                   <label
                     style={{ color: "var(--text-secondary)" }}
                     className={formLabelCls}
                   >
-                    Attachments
+                    📎 Attachments
                   </label>
                   <div>
                     <input
@@ -4215,16 +5107,19 @@ const Notes = () => {
                     />
                     <label
                       htmlFor="note-files"
-                      className="flex items-center gap-2 px-4 py-2.5 border-[1.5px] border-dashed rounded-xl text-sm font-medium cursor-pointer transition-all hover:bg-[var(--bg-hover)] hover:border-[var(--accent-primary)]"
+                      className="flex items-center gap-2 px-4 py-3 border-[1.5px] border-dashed rounded-xl text-sm font-medium cursor-pointer transition-all hover:border-[var(--accent-primary)] hover:bg-[var(--accent-light)]"
                       style={{
                         background: "var(--bg-tertiary)",
                         borderColor: "var(--border-color)",
                         color: "var(--text-secondary)",
                       }}
                     >
-                      <Upload size={16} />
+                      <Upload
+                        size={16}
+                        style={{ color: "var(--accent-primary)" }}
+                      />
                       {selectedFiles.length > 0
-                        ? `${selectedFiles.length} file(s) selected`
+                        ? `${selectedFiles.length} file(s) selected — click to change`
                         : "Attach files (images, PDFs, docs, etc.)"}
                     </label>
                   </div>
@@ -4298,6 +5193,8 @@ const Notes = () => {
                     </div>
                   )}
                 </div>
+
+                {/* Action buttons */}
                 <div className="flex gap-3 pt-1">
                   <button
                     type="button"
@@ -4319,10 +5216,20 @@ const Notes = () => {
                     className={btnPrimary + " flex-1 justify-center"}
                     style={{
                       background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                      boxShadow: "0 4px 14px rgba(99,102,241,0.4)",
                     }}
                     disabled={adding || (!title.trim() && !description.trim())}
                   >
-                    {adding ? "Adding..." : "Add Note"}
+                    {adding ? (
+                      <>
+                        <span className="animate-spin inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" />
+                        Adding...
+                      </>
+                    ) : (
+                      <>
+                        <Plus size={15} /> Add Note
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
@@ -4330,9 +5237,74 @@ const Notes = () => {
           </div>
         </>
       )}
-
       {/* ── Main content ── */}
-      <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <main
+        className="main-content-area px-3 sm:px-6 py-4 sm:py-8 transition-all duration-300"
+        style={{
+          maxWidth: 1400,
+          marginLeft: sidebarOpen ? 256 : 56,
+          marginRight: "auto",
+        }}
+      >
+        {/* Folder breadcrumb / context bar */}
+        <div className="flex items-center gap-2 mb-5 flex-wrap">
+          <div className="flex items-center gap-2">
+            {activeFolderId ? (
+              (() => {
+                const f = folders.find((x) => x._id === activeFolderId);
+                return f ? (
+                  <div
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-sm font-semibold"
+                    style={{
+                      background: `${f.color}12`,
+                      borderColor: `${f.color}40`,
+                      color: f.color,
+                    }}
+                  >
+                    <span>{f.icon}</span>
+                    <span>{f.name}</span>
+                  </div>
+                ) : null;
+              })()
+            ) : (
+              <div
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-sm font-semibold"
+                style={{
+                  background: "var(--accent-light)",
+                  borderColor: "var(--accent-primary)",
+                  color: "var(--accent-primary)",
+                }}
+              >
+                <Inbox size={14} />
+                <span>Inbox</span>
+              </div>
+            )}
+          </div>
+          {/* New Note + New Folder quick actions */}
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={() => setFolderFormModal({ isOpen: true, folder: null })}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all hover:-translate-y-0.5"
+              style={{
+                background: "var(--bg-secondary)",
+                color: "var(--text-secondary)",
+                borderColor: "var(--border-color)",
+              }}
+            >
+              <FolderPlus size={13} /> New Folder
+            </button>
+            <button
+              onClick={() => setShowForm(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white cursor-pointer transition-all hover:-translate-y-0.5"
+              style={{
+                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                boxShadow: "0 4px 12px rgba(99,102,241,0.35)",
+              }}
+            >
+              <Plus size={13} /> New Note
+            </button>
+          </div>
+        </div>
         {/* Search + controls bar */}
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
           <div className="relative flex-1">
@@ -4557,6 +5529,7 @@ const Notes = () => {
                   onCopy={copyNote}
                   onShare={shareNote}
                   onDownload={downloadNote}
+                  onMove={(n) => setMoveModal({ isOpen: true, note: n })}
                   onCanvas={(n) => {
                     setShowCanvas(true);
                     setCanvasNoteId(n._id);
@@ -5016,14 +5989,20 @@ const Notes = () => {
           onSave={handleCanvasSave}
           existingCanvasUrl={canvasExistingUrl}
           noteId={canvasNoteId}
+          initialCanvasName={
+            canvasNoteId
+              ? notes.find((n) => n._id === canvasNoteId)?.canvasName ||
+                "Canvas Drawing"
+              : canvasName
+          }
         />
       )}
 
       {/* ── Floating buttons ── */}
-      <div className="fixed bottom-6 right-4 sm:right-6 flex flex-col gap-3 z-[1000]">
+      <div className="fixed bottom-5 right-4 sm:right-6 flex flex-col gap-2.5 z-[1000]">
         <button
           style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}
-          className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl text-white border-none flex items-center justify-center shadow-[0_6px_24px_rgba(99,102,241,0.5)] cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:scale-105 hover:shadow-[0_10px_30px_rgba(99,102,241,0.6)] active:translate-y-0 active:scale-95"
+          className="fab-mobile w-10 h-10 sm:w-14 sm:h-14 rounded-2xl text-white border-none flex items-center justify-center shadow-[0_6px_24px_rgba(99,102,241,0.5)] cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:scale-105 hover:shadow-[0_10px_30px_rgba(99,102,241,0.6)] active:translate-y-0 active:scale-95"
           onClick={() => {
             setShowCanvas(true);
             setCanvasNoteId(null);
@@ -5031,15 +6010,17 @@ const Notes = () => {
           }}
           title="Open Canvas"
         >
-          <Brush size={20} />
+          <Brush size={18} className="sm:hidden" />
+          <Brush size={22} className="hidden sm:block" />
         </button>
         <button
           style={{ background: "linear-gradient(135deg, #6366f1, #4f46e5)" }}
-          className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl text-white border-none flex items-center justify-center shadow-[0_6px_24px_rgba(99,102,241,0.45)] cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:scale-105 hover:shadow-[0_10px_30px_rgba(99,102,241,0.55)] active:translate-y-0 active:scale-95"
+          className="fab-mobile w-10 h-10 sm:w-14 sm:h-14 rounded-2xl text-white border-none flex items-center justify-center shadow-[0_6px_24px_rgba(99,102,241,0.45)] cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:scale-105 hover:shadow-[0_10px_30px_rgba(99,102,241,0.55)] active:translate-y-0 active:scale-95"
           onClick={() => setIsAIAgentOpen(true)}
           title="AI Assistant"
         >
-          <Bot size={20} />
+          <Bot size={18} className="sm:hidden" />
+          <Bot size={22} className="hidden sm:block" />
         </button>
       </div>
 

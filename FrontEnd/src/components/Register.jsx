@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Mail,
   Lock,
@@ -13,6 +13,79 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
+
+// ✅ FIX 1: Moved OUTSIDE Register component.
+// Previously defined inside Register, which caused React to treat it as a
+// brand-new component on every render (every keystroke), unmounting and
+// remounting the <input> — making the mobile keyboard disappear each time.
+const InputField = ({
+  id,
+  label,
+  type,
+  icon: Icon,
+  placeholder,
+  value,
+  onChange,
+  error,
+  disabled,
+  showToggle,
+  onToggle,
+  showPw,
+  autoComplete,
+  name,
+  inputMode,
+}) => (
+  <div className="flex flex-col gap-1.5">
+    {label && (
+      <label
+        style={{ color: "var(--text-secondary)" }}
+        className="text-sm font-semibold"
+        htmlFor={id}
+      >
+        {label}
+      </label>
+    )}
+    <div className="relative flex items-center">
+      <Icon
+        className="absolute left-4 pointer-events-none z-10"
+        size={18}
+        style={{ color: "var(--text-muted)" }}
+      />
+      <input
+        id={id}
+        name={name} // ✅ FIX 4: Added name for accessibility & autofill
+        type={showToggle ? (showPw ? "text" : "password") : type}
+        autoComplete={autoComplete} // ✅ FIX 3: Added autoComplete for better mobile UX
+        inputMode={inputMode} // ✅ FIX 5: Added inputMode for correct mobile keyboard type
+        style={{
+          background: "var(--bg-secondary)",
+          borderColor: error ? "var(--error)" : "var(--border-color)",
+          color: "var(--text-primary)",
+        }}
+        className="w-full pl-11 pr-12 py-3.5 border-2 rounded-xl text-[0.9375rem] font-[inherit] outline-none transition-all duration-200 focus:border-[var(--accent-primary)] focus:shadow-[0_0_0_4px_rgba(59,130,246,0.1)] disabled:opacity-60 placeholder-[var(--text-muted)]"
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+      />
+      {showToggle && (
+        <button
+          type="button"
+          style={{ color: "var(--text-muted)" }}
+          className="absolute right-3 p-2 rounded-lg flex items-center justify-center hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] transition-all"
+          onClick={onToggle}
+        >
+          {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
+        </button>
+      )}
+    </div>
+    {error && (
+      <span style={{ color: "var(--error)" }} className="text-xs font-medium">
+        {error}
+      </span>
+    )}
+  </div>
+);
 
 const PasswordStrength = ({ password }) => {
   const checks = [
@@ -94,13 +167,20 @@ const Register = () => {
     localStorage.setItem("notes-theme", JSON.stringify(darkMode));
   }, [darkMode]);
 
-  const addToast = (message, type = "info") => {
-    const id = Date.now() + Math.random();
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => removeToast(id), 3500);
-  };
-  const removeToast = (id) =>
+  // ✅ FIX 2: removeToast as useCallback to avoid stale closure in setTimeout
+  const removeToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const addToast = useCallback(
+    (message, type = "info") => {
+      const id = Date.now() + Math.random();
+      setToasts((prev) => [...prev, { id, message, type }]);
+      setTimeout(() => removeToast(id), 3500);
+    },
+    [removeToast],
+  );
+
   const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   const validateRegisterForm = () => {
@@ -158,69 +238,6 @@ const Register = () => {
     error: "border-l-[var(--error)]",
     info: "border-l-[var(--accent-primary)]",
   };
-
-  const InputField = ({
-    id,
-    label,
-    type,
-    icon: Icon,
-    placeholder,
-    value,
-    onChange,
-    error,
-    disabled,
-    showToggle,
-    onToggle,
-    showPw,
-  }) => (
-    <div className="flex flex-col gap-1.5">
-      {label && (
-        <label
-          style={{ color: "var(--text-secondary)" }}
-          className="text-sm font-semibold"
-          htmlFor={id}
-        >
-          {label}
-        </label>
-      )}
-      <div className="relative flex items-center">
-        <Icon
-          className="absolute left-4 pointer-events-none z-10"
-          size={18}
-          style={{ color: "var(--text-muted)" }}
-        />
-        <input
-          id={id}
-          type={showToggle ? (showPw ? "text" : "password") : type}
-          style={{
-            background: "var(--bg-secondary)",
-            borderColor: error ? "var(--error)" : "var(--border-color)",
-            color: "var(--text-primary)",
-          }}
-          className="w-full pl-11 pr-12 py-3.5 border-2 rounded-xl text-[0.9375rem] font-[inherit] outline-none transition-all duration-200 focus:border-[var(--accent-primary)] focus:shadow-[0_0_0_4px_rgba(59,130,246,0.1)] disabled:opacity-60 placeholder-[var(--text-muted)]"
-          placeholder={placeholder}
-          value={value}
-          onChange={onChange}
-          disabled={disabled}
-        />
-        {showToggle && (
-          <button
-            type="button"
-            style={{ color: "var(--text-muted)" }}
-            className="absolute right-3 p-2 rounded-lg flex items-center justify-center hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] transition-all"
-            onClick={onToggle}
-          >
-            {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
-          </button>
-        )}
-      </div>
-      {error && (
-        <span style={{ color: "var(--error)" }} className="text-xs font-medium">
-          {error}
-        </span>
-      )}
-    </div>
-  );
 
   return (
     <div
@@ -461,6 +478,7 @@ const Register = () => {
           <form className="flex flex-col gap-4" onSubmit={handleRegister}>
             <InputField
               id="name"
+              name="name"
               label="Full Name"
               type="text"
               icon={User}
@@ -469,10 +487,12 @@ const Register = () => {
               onChange={(e) => setRegisterName(e.target.value)}
               error={registerErrors.name}
               disabled={registerLoading}
+              autoComplete="name"
             />
 
             <InputField
               id="reg-email"
+              name="email"
               label="Email Address"
               type="email"
               icon={Mail}
@@ -481,11 +501,14 @@ const Register = () => {
               onChange={(e) => setRegisterEmail(e.target.value)}
               error={registerErrors.email}
               disabled={registerLoading}
+              autoComplete="email"
+              inputMode="email"
             />
 
             <div>
               <InputField
                 id="reg-password"
+                name="password"
                 label="Password"
                 type="password"
                 icon={Lock}
@@ -497,12 +520,14 @@ const Register = () => {
                 showToggle
                 onToggle={() => setShowRegisterPassword(!showRegisterPassword)}
                 showPw={showRegisterPassword}
+                autoComplete="new-password"
               />
               <PasswordStrength password={registerPassword} />
             </div>
 
             <InputField
               id="confirmPassword"
+              name="confirmPassword"
               label="Confirm Password"
               type="password"
               icon={Lock}
@@ -514,6 +539,7 @@ const Register = () => {
               showToggle
               onToggle={() => setShowConfirmPassword(!showConfirmPassword)}
               showPw={showConfirmPassword}
+              autoComplete="new-password"
             />
 
             {/* Terms */}
