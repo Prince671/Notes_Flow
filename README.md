@@ -1,54 +1,50 @@
-```
-📝 NotesFlow
+<div align="center">
 
-A full-stack Notes Management Application built using Node.js (Express) and React.js (with Tailwind CSS).
-It provides a powerful and scalable platform to create, organize, and interact with notes — enhanced with AI capabilities and modern UI features.
+# 📝 NotesFlow
+
+**A full-stack Notes Management Application built with Node.js + React.js**
+
+[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-Express-green?logo=node.js)](https://nodejs.org)
+[![React](https://img.shields.io/badge/React-Tailwind_CSS-61DAFB?logo=react)](https://react.dev)
+[![MongoDB](https://img.shields.io/badge/Database-MongoDB-47A248?logo=mongodb)](https://mongodb.com)
+
+*Create, organize, and interact with your notes — enhanced with AI capabilities and a modern UI.*
+
+</div>
 
 ---
 
-🚀 Live Features
+## 🚀 Live Features
 
-🔐 Authentication & Security
-
+### 🔐 Authentication & Security
 - User Registration & Login
 - JWT-based Authentication
 - Protected & Public Routes
-- Forgot Password & Reset Password
+- Forgot Password & Reset Password flow
 - Secure middleware-based route protection
 
----
-
-🗂️ Notes & Folder Management
-
-- Create, Read, Update, Delete (CRUD) Notes
+### 🗂️ Notes & Folder Management
+- Full **CRUD** operations on Notes
 - Folder-based organization system
 - Add notes inside folders
 - Shareable notes via link
 - Attach images and files to notes
 
----
-
-🤖 AI Integration
-
+### 🤖 AI Integration
 - Ask questions related to your notes
 - General-purpose AI assistant
 - Smart responses using AI service
-- Integrated AI chat panel
+- Integrated AI chat panel inside the app
 
----
-
-🎨 UI/UX & Frontend
-
-- Built with React + Tailwind CSS
+### 🎨 UI/UX & Frontend
+- Built with **React + Tailwind CSS**
 - Fully Responsive Design (Mobile + Desktop)
 - Skeleton loading & smooth UI experience
-- Custom components & reusable structure
+- Custom reusable component architecture
 - 404 Page Not Found handling
 
----
-
-🧠 Advanced Features
-
+### 🧠 Advanced Features
 - Canvas support for interactive usage
 - Sidebar AI Agent interface
 - Clean and modular frontend architecture
@@ -56,163 +52,160 @@ It provides a powerful and scalable platform to create, organize, and interact w
 
 ---
 
-🏗️ Project Structure
+## ⚙️ Tech Stack
 
+| Layer | Technology |
+|---|---|
+| **Frontend** | React.js, Tailwind CSS, React Router |
+| **Backend** | Node.js, Express.js |
+| **Database** | MongoDB (Mongoose) |
+| **File Uploads** | Cloudinary |
+| **Auth** | JSON Web Tokens (JWT) |
+| **AI** | AI Service Integration |
+
+---
+
+## 🏗️ Project Structure
+
+```
 NotesFlow/
 │
 ├── BackEnd/
 │   ├── config/
 │   │   ├── cloudinary.config.js
 │   │   └── db.js
-│   │
 │   ├── middleware/
 │   │   └── auth.js
-│   │
 │   ├── models/
 │   │   ├── chat.model.js
 │   │   ├── notes.model.js
 │   │   └── user.model.js
-│   │
 │   ├── routes/
 │   │   ├── chat.route.js
 │   │   ├── notes.route.js
 │   │   └── user.routes.js
-│   │
 │   ├── services/
 │   │   └── ai.service.js
-│   │
 │   ├── app.js
 │   ├── package.json
 │   └── .env
 │
-├── FrontEnd/
-│   ├── src/
-│   │   ├── assets/
-│   │   ├── components/
-│   │   │   ├── AIAgentSidebar.jsx
-│   │   │   ├── Login.jsx
-│   │   │   ├── Register.jsx
-│   │   │   ├── Notes.jsx
-│   │   │   ├── ProtectedRoute.jsx
-│   │   │   ├── PublicRoute.jsx
-│   │   │   ├── ForgotPassword.jsx
-│   │   │   ├── ResetPassword.jsx
-│   │   │   ├── SharedNote.jsx
-│   │   │   └── NotFound.jsx
-│   │   │
-│   │   ├── App.jsx
-│   │   ├── main.jsx
-│   │   └── index.css
-│   │
-│   ├── index.html
-│   ├── package.json
-│   └── .env
-│
-└── README.md
+└── FrontEnd/
+    ├── src/
+    │   ├── assets/
+    │   ├── components/
+    │   │   ├── AIAgentSidebar.jsx
+    │   │   ├── Login.jsx
+    │   │   ├── Register.jsx
+    │   │   ├── Notes.jsx
+    │   │   ├── ProtectedRoute.jsx
+    │   │   ├── PublicRoute.jsx
+    │   │   ├── ForgotPassword.jsx
+    │   │   ├── ResetPassword.jsx
+    │   │   ├── SharedNote.jsx
+    │   │   └── NotFound.jsx
+    │   ├── App.jsx
+    │   ├── main.jsx
+    │   └── index.css
+    ├── index.html
+    ├── package.json
+    └── .env
+```
 
 ---
 
-⚙️ Tech Stack
+## 🛠️ Installation & Setup
 
-Frontend
+### 1️⃣ Clone the Repository
 
-- React.js
-- Tailwind CSS
-- React Router
-
-Backend
-
-- Node.js
-- Express.js
-- MongoDB (Mongoose)
-
-Other Tools
-
-- Cloudinary (for file uploads)
-- JWT (Authentication)
-- AI Service Integration
-
----
-
-🛠️ Installation & Setup
-
-1️⃣ Clone Repository
-
+```bash
 git clone https://github.com/Prince671/NotesFlow.git
 cd NotesFlow
+```
 
----
+### 2️⃣ Backend Setup
 
-2️⃣ Backend Setup
-
+```bash
 cd BackEnd
 npm install
+```
 
-Create ".env" file:
+Create a `.env` file inside `BackEnd/`:
 
+```env
 PORT=5000
 MONGO_URI=your_mongodb_uri
 JWT_SECRET=your_secret_key
 CLOUDINARY_URL=your_cloudinary_url
+```
 
-Run backend:
+Start the backend server:
 
+```bash
 npm start
+```
 
----
+### 3️⃣ Frontend Setup
 
-3️⃣ Frontend Setup
-
+```bash
 cd FrontEnd
 npm install
 npm run dev
-
----
-
-🔐 Environment Variables
-
-Backend
-
-- "MONGO_URI"
-- "JWT_SECRET"
-- "CLOUDINARY_URL"
-
-Frontend
-
-- API Base URL (if required)
-
----
-
-📌 Key Highlights
-
-- Clean and scalable folder structure
-- Full authentication system
-- AI-powered assistant inside app
-- Folder-based note management
-- File/image upload support
-- Shareable notes
-- Responsive modern UI
-
----
-
-📸 Future Improvements
-
-- Real-time collaboration
-- Note version history
-- Dark mode toggle
-- Drag & drop folders/notes
-- Voice-based AI interaction
-
----
-
-👨‍💻 Author
-
-Prince Soni
-GitHub: https://github.com/Prince671/Notes_Flow
-
----
-
-📄 License
-
-This project is licensed under the MIT License.
 ```
+
+> The app will be running at `http://localhost:5173` by default.
+
+---
+
+## 🔐 Environment Variables
+
+### Backend (`BackEnd/.env`)
+
+| Variable | Description |
+|---|---|
+| `PORT` | Port for the Express server |
+| `MONGO_URI` | MongoDB connection string |
+| `JWT_SECRET` | Secret key for JWT signing |
+| `CLOUDINARY_URL` | Cloudinary API URL for file uploads |
+
+### Frontend (`FrontEnd/.env`)
+
+| Variable | Description |
+|---|---|
+| `VITE_API_BASE` | Base URL of your backend API |
+
+---
+
+## 📌 Key Highlights
+
+- ✅ Clean and scalable folder structure
+- ✅ Full authentication system (Register, Login, Forgot/Reset Password)
+- ✅ AI-powered assistant inside the app
+- ✅ Folder-based note management
+- ✅ File & image upload support via Cloudinary
+- ✅ Shareable notes via link
+- ✅ Responsive, modern UI
+
+---
+
+## 📸 Future Improvements
+
+- [ ] Real-time collaboration
+- [ ] Note version history
+- [ ] Dark mode toggle
+- [ ] Drag & drop folders/notes
+- [ ] Voice-based AI interaction
+
+---
+
+## 👨‍💻 Author
+
+**Prince Soni**
+
+[![GitHub](https://img.shields.io/badge/GitHub-Prince671-181717?logo=github)](https://github.com/Prince671/Notes_Flow)
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
