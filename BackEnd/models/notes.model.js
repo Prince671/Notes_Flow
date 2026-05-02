@@ -32,11 +32,35 @@ folderSchema.index({ name: 1, createdBy: 1 }, { unique: true });
 const Folder = mongoose.model('Folder', folderSchema);
 
 // ── Attachment Sub-Schema ────────────────────────────────────────────────────
+// FIX: expanded 'type' enum to cover all file types the frontend can upload.
+//      Also added optional 'mimetype' field so the frontend can detect the
+//      icon / download behaviour without guessing from the filename alone.
 const attachmentSchema = new mongoose.Schema(
   {
-    url:  { type: String, required: true },
-    type: { type: String, required: true, enum: ['image', 'pdf'] },
+    url: { type: String, required: true },
+
+    // FIX: was enum: ['image','pdf'] — now covers every MIME category we accept
+    type: {
+      type: String,
+      required: true,
+      enum: [
+        'image',
+        'pdf',
+        'doc',
+        'excel',
+        'ppt',
+        'text',
+        'video',
+        'audio',
+        'raw',   // catch-all for anything else that passes the multer filter
+      ],
+    },
+
     name: { type: String, required: true },
+
+    // FIX: store the original MIME type so the frontend can render the correct icon
+    //      and set the right Content-Type when the user downloads the file.
+    mimetype: { type: String, default: '' },
   },
   { _id: false }
 );
@@ -92,7 +116,7 @@ const notesSchema = new mongoose.Schema(
       default: false,
     },
 
-    // File attachments (images / PDFs) stored in Cloudinary
+    // File attachments stored in Cloudinary (images / PDFs / docs / etc.)
     attachments: {
       type: [attachmentSchema],
       default: [],

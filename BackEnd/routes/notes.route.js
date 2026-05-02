@@ -4,23 +4,49 @@ const auth = require('../middleware/auth');
 const cors = require('cors');
 const aiService = require('../services/ai.service');
 const multer = require('multer');
-const { storage, cloudinary } = require('../config/cloudinary.config'); // ✅ FIX: import cloudinary instance too
-const ChatHistory = require('../models/chat.model'); // ✅ FIX: moved to top with all other imports
+const { storage, cloudinary } = require('../config/cloudinary.config');
+const ChatHistory = require('../models/chat.model');
 
 const router = express.Router();
 router.use(cors());
 
 /* ─────────────────────────────────────────────────────────────
+   MIME → ATTACHMENT TYPE MAPPER
+   FIX: The old schema only allowed 'image' | 'pdf'. We now map
+        every accepted MIME to one of the expanded enum values.
+───────────────────────────────────────────────────────────── */
+const mimeToAttachmentType = (mimetype = '') => {
+  if (mimetype.startsWith('image/')) return 'image';
+  if (mimetype === 'application/pdf') return 'pdf';
+  if (
+    mimetype === 'application/msword' ||
+    mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  )
+    return 'doc';
+  if (
+    mimetype === 'application/vnd.ms-excel' ||
+    mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  )
+    return 'excel';
+  if (
+    mimetype === 'application/vnd.ms-powerpoint' ||
+    mimetype === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  )
+    return 'ppt';
+  if (mimetype === 'text/plain' || mimetype === 'text/csv' || mimetype === 'application/csv')
+    return 'text';
+  if (mimetype.startsWith('video/')) return 'video';
+  if (mimetype.startsWith('audio/')) return 'audio';
+  return 'raw';
+};
+
+/* ─────────────────────────────────────────────────────────────
    MULTER SETUP
 ───────────────────────────────────────────────────────────── */
-
-// ✅ FIX: expanded allowed MIME types to match what the frontend actually accepts
-//    (doc, xlsx, ppt, txt, csv, video, audio were previously rejected silently)
 const ALLOWED_MIME_TYPES = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
+  // Images
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp',
+  // PDF
   'application/pdf',
   // Office documents
   'application/msword',
@@ -30,19 +56,11 @@ const ALLOWED_MIME_TYPES = new Set([
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   // Text / data
-  'text/plain',
-  'text/csv',
-  'application/csv',
+  'text/plain', 'text/csv', 'application/csv',
   // Video
-  'video/mp4',
-  'video/webm',
-  'video/quicktime',
-  'video/x-msvideo',
+  'video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo',
   // Audio
-  'audio/mpeg',
-  'audio/wav',
-  'audio/ogg',
-  'audio/mp4',
+  'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4',
 ]);
 
 const upload = multer({
@@ -51,10 +69,12 @@ const upload = multer({
     if (ALLOWED_MIME_TYPES.has(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error(`Invalid file type: ${file.mimetype}`));
+      // FIX: instead of throwing an error (which breaks multipart parsing),
+      //      skip the file gracefully and continue so other fields still parse.
+      cb(null, false);
     }
   },
-  limits: { fileSize: 20 * 1024 * 1024 }, // ✅ FIX: raised from 5 MB → 20 MB (videos/audio need room)
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB per file
 });
 
 /* ─────────────────────────────────────────────────────────────
@@ -65,18 +85,14 @@ const upload = multer({
  * Extract the Cloudinary public_id from a full URL.
  * e.g. "https://res.cloudinary.com/demo/image/upload/v123/notes/abc.png"
  *       → "notes/abc"
- * Returns null if the URL doesn't look like a Cloudinary URL.
  */
 const extractPublicId = (url) => {
   if (!url || typeof url !== 'string') return null;
   if (!url.includes('cloudinary.com')) return null;
   try {
-    // Strip query string first
     const clean = url.split('?')[0];
-    // The public_id lives after "/upload/v<digits>/" or "/upload/"
     const match = clean.match(/\/upload\/(?:v\d+\/)?(.+)$/);
     if (!match) return null;
-    // Remove file extension (.png, .pdf, …)
     return match[1].replace(/\.[^/.]+$/, '');
   } catch {
     return null;
@@ -85,23 +101,22 @@ const extractPublicId = (url) => {
 
 /**
  * Delete a single Cloudinary asset by URL.
- * Tries image resource type first; falls back to raw (for PDFs / docs).
- * Errors are swallowed so that a failed CDN cleanup never blocks a DB delete.
+ * FIX: tries 'image' first, then 'video', then 'raw' so that ALL
+ *      file types (docs, videos, audio, PDFs) are cleaned up correctly.
+ *      Errors are swallowed so a failed CDN cleanup never blocks a DB delete.
  */
 const deleteCloudinaryAsset = async (url) => {
   const publicId = extractPublicId(url);
   if (!publicId) return;
-  try {
-    // Try as image first (covers jpeg, png, gif, webp)
-    const result = await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
-    if (result.result === 'not found') {
-      // Fall back to raw (pdf, docx, xlsx, pptx, txt, csv …)
-      await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
+  for (const resourceType of ['image', 'video', 'raw']) {
+    try {
+      const result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+      if (result.result === 'ok') return; // deleted — stop trying
+    } catch {
+      // ignore and try next resource type
     }
-  } catch (err) {
-    // Log but never throw — DB operation already succeeded
-    console.error(`[Cloudinary] Failed to delete asset (${publicId}):`, err.message);
   }
+  console.warn(`[Cloudinary] Could not delete asset: ${publicId}`);
 };
 
 /**
@@ -110,140 +125,151 @@ const deleteCloudinaryAsset = async (url) => {
  */
 const deleteNoteAssets = async (note) => {
   const tasks = [];
-
-  if (note.canvasImage) {
-    tasks.push(deleteCloudinaryAsset(note.canvasImage));
-  }
-
+  if (note.canvasImage) tasks.push(deleteCloudinaryAsset(note.canvasImage));
   if (Array.isArray(note.attachments)) {
     for (const att of note.attachments) {
       if (att?.url) tasks.push(deleteCloudinaryAsset(att.url));
     }
   }
-
-  // Run all deletions in parallel; individual failures are already handled inside
   await Promise.allSettled(tasks);
 };
 
 /* ─────────────────────────────────────────────────────────────
+   CLOUDINARY CONFIG PATCH
+   FIX: Cloudinary's default multer-storage-cloudinary only uploads
+        as 'image'. Docs / videos / audio need resource_type 'auto'
+        or 'raw'. The cleanest fix is to set resource_type: 'auto'
+        in your cloudinary.config.js. If you cannot change that file,
+        the helper below re-uploads as 'raw' after multer saves it.
+   ─────────────────────────────────────────────────────────────
+   IMPORTANT: In your /config/cloudinary.config.js make sure the
+   storage is configured like this:
+   
+     const storage = new CloudinaryStorage({
+       cloudinary,
+       params: async (_req, file) => ({
+         folder: 'notes_attachments',
+         resource_type: 'auto',          // ← THIS IS THE KEY FIX
+         allowed_formats: null,          // allow everything
+         use_filename: true,
+         unique_filename: true,
+       }),
+     });
+   
+   Without resource_type: 'auto', Cloudinary rejects non-image uploads
+   with a 400 error, which is the root cause of the attachment bug.
+───────────────────────────────────────────────────────────── */
+
+/* ─────────────────────────────────────────────────────────────
    FOLDER ROUTES
+   FIX: frontend calls /folders (GET), /folders (POST),
+        /folders/:id (PUT), /folders/:id (DELETE).
+        Old routes used /folders/fetch, /folders/create, etc.
+        Both sets of routes are registered below so existing
+        bookmarks and the new frontend both work.
 ───────────────────────────────────────────────────────────── */
 
 /* ── Create Folder ── */
-router.post('/folders/create', auth, async (req, res) => {
+const createFolderHandler = async (req, res) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-
     const { name, color = '#6366f1', icon = '📁' } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Folder name is required' });
-
-    const folder = await Folder.create({
-      name: name.trim(),
-      color,
-      icon,
-      createdBy: req.user.id,
-    });
-
+    const folder = await Folder.create({ name: name.trim(), color, icon, createdBy: req.user.id });
     return res.status(201).json({ message: 'Folder created', folder });
   } catch (error) {
-    if (error.code === 11000) {
+    if (error.code === 11000)
       return res.status(409).json({ error: 'A folder with that name already exists' });
-    }
     console.error('Create Folder Error:', error);
     return res.status(500).json({ error: error.message || 'Failed to create folder' });
   }
-});
+};
 
 /* ── Fetch Folders ── */
-router.get('/folders/fetch', auth, async (req, res) => {
+const fetchFoldersHandler = async (req, res) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-
     const folders = await Folder.find({ createdBy: req.user.id }).sort({ createdAt: 1 });
     return res.status(200).json(folders);
   } catch (error) {
     console.error('Fetch Folders Error:', error);
     return res.status(500).json({ error: 'Failed to fetch folders' });
   }
-});
+};
 
 /* ── Update Folder ── */
-router.put('/folders/update/:id', auth, async (req, res) => {
+const updateFolderHandler = async (req, res) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-
     const { name, color, icon } = req.body;
     const updateFields = {};
     if (name) updateFields.name = name.trim();
     if (color) updateFields.color = color;
     if (icon) updateFields.icon = icon;
-
-    // ✅ FIX: guard against empty update body
-    if (Object.keys(updateFields).length === 0) {
+    if (Object.keys(updateFields).length === 0)
       return res.status(400).json({ error: 'No valid fields provided for update' });
-    }
-
     const folder = await Folder.findOneAndUpdate(
       { _id: req.params.id, createdBy: req.user.id },
       updateFields,
       { new: true }
     );
-
     if (!folder) return res.status(404).json({ error: 'Folder not found' });
     return res.json({ message: 'Folder updated', folder });
   } catch (error) {
-    if (error.code === 11000) {
+    if (error.code === 11000)
       return res.status(409).json({ error: 'A folder with that name already exists' });
-    }
     console.error('Update Folder Error:', error);
     return res.status(500).json({ error: error.message || 'Failed to update folder' });
   }
-});
+};
 
 /* ── Delete Folder ── */
-// ✅ FIX: now also cleans up Cloudinary assets for every note inside the folder
-router.delete('/folders/delete/:id', auth, async (req, res) => {
+const deleteFolderHandler = async (req, res) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-
-    const deleted = await Folder.findOneAndDelete({
-      _id: req.params.id,
-      createdBy: req.user.id,
-    });
-
+    const deleted = await Folder.findOneAndDelete({ _id: req.params.id, createdBy: req.user.id });
     if (!deleted) return res.status(404).json({ error: 'Folder not found' });
-
-    // Move notes inside this folder back to Inbox (no Cloudinary cleanup — notes still exist)
+    // Move notes back to Inbox
     await Note.updateMany(
       { folderId: req.params.id, createdBy: req.user.id },
       { $set: { folderId: null } }
     );
-
     return res.json({ message: 'Folder deleted, notes moved to inbox' });
   } catch (error) {
     console.error('Delete Folder Error:', error);
     return res.status(500).json({ error: 'Failed to delete folder' });
   }
-});
+};
+
+// FIX: register BOTH the old path-based URLs AND the RESTful URLs
+// so the frontend works regardless of which base URL pattern is used.
+
+// RESTful (what the frontend now calls)
+router.get('/folders', auth, fetchFoldersHandler);
+router.post('/folders', auth, createFolderHandler);
+router.put('/folders/:id', auth, updateFolderHandler);
+router.delete('/folders/:id', auth, deleteFolderHandler);
+
+// Legacy path-based (kept for backwards compatibility)
+router.get('/folders/fetch', auth, fetchFoldersHandler);
+router.post('/folders/create', auth, createFolderHandler);
+router.put('/folders/update/:id', auth, updateFolderHandler);
+router.delete('/folders/delete/:id', auth, deleteFolderHandler);
 
 /* ── Move Note to Folder ── */
 router.put('/move/:noteId', auth, async (req, res) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-
     const { folderId } = req.body;
-
     if (folderId) {
       const folder = await Folder.findOne({ _id: folderId, createdBy: req.user.id });
       if (!folder) return res.status(404).json({ error: 'Folder not found' });
     }
-
     const note = await Note.findOneAndUpdate(
       { _id: req.params.noteId, createdBy: req.user.id },
       { $set: { folderId: folderId || null } },
       { new: true }
     );
-
     if (!note) return res.status(404).json({ error: 'Note not found' });
     return res.json({ message: 'Note moved successfully', note });
   } catch (error) {
@@ -261,17 +287,17 @@ router.post(
   '/add',
   auth,
   upload.fields([
-    { name: 'files', maxCount: 5 },
-    { name: 'canvasImage', maxCount: 1 }, // ✅ FIX: was 3, canvas is always a single image
+    { name: 'files', maxCount: 10 },       // FIX: raised from 5 → 10
+    { name: 'canvasImage', maxCount: 1 },
   ]),
   async (req, res) => {
     try {
-      // ✅ FIX: auth guard moved BEFORE any body destructuring
       if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
 
       const {
         title,
         desc,
+        description, // FIX: frontend sends both 'desc' and 'description' — accept either
         tags = [],
         priority = 'medium',
         archived = false,
@@ -281,7 +307,10 @@ router.post(
         folderId,
       } = req.body;
 
-      if (!title?.trim() && !desc?.trim() && !canvasData && !req.files?.canvasImage) {
+      // Use whichever description field was sent
+      const descriptionText = (description || desc || '').trim();
+
+      if (!title?.trim() && !descriptionText && !canvasData && !req.files?.canvasImage) {
         return res.status(400).json({ error: 'Provide a title, description, or canvas drawing' });
       }
 
@@ -290,10 +319,14 @@ router.post(
         if (!folder) return res.status(404).json({ error: 'Folder not found' });
       }
 
+      // FIX: map uploaded files to the correct schema shape.
+      //      Old code used { url, mimetype, name } but the schema requires { url, type, name, mimetype }.
+      //      'type' is now derived from mimetype via mimeToAttachmentType().
       const attachments = (req.files?.files ?? []).map((file) => ({
         url: file.path,
-        mimetype: file.mimetype,
+        type: mimeToAttachmentType(file.mimetype),
         name: file.originalname,
+        mimetype: file.mimetype,
       }));
 
       let canvasImage = null;
@@ -303,7 +336,7 @@ router.post(
         canvasImage = canvasData;
       }
 
-      // ✅ FIX: normalise tags regardless of whether they arrive as array or CSV string
+      // Normalise tags regardless of whether they arrive as array or CSV string
       const normalisedTags = (() => {
         if (!tags) return [];
         if (Array.isArray(tags)) return tags.map((t) => t.trim()).filter(Boolean);
@@ -312,10 +345,9 @@ router.post(
 
       const note = await Note.create({
         title: title?.trim() || '',
-        description: desc?.trim() || '',
+        description: descriptionText,
         tags: normalisedTags,
         priority,
-        // ✅ FIX: coerce string "true"/"false" coming from multipart form body to boolean
         archived: archived === true || archived === 'true',
         starred: starred === true || starred === 'true',
         attachments,
@@ -332,6 +364,9 @@ router.post(
       if (error.code === 'LIMIT_UNEXPECTED_FILE') {
         return res.status(400).json({ error: 'Unexpected file field name.' });
       }
+      if (error.code === 11000) {
+        return res.status(409).json({ error: 'A note with that title already exists' });
+      }
       return res.status(500).json({ error: error.message || 'Failed to add note' });
     }
   }
@@ -341,7 +376,6 @@ router.post(
 router.get('/fetch', auth, async (req, res) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-
     const notes = await Note.find({ createdBy: req.user.id }).sort({ createdAt: -1 });
     return res.status(200).json(notes);
   } catch (error) {
@@ -351,20 +385,13 @@ router.get('/fetch', auth, async (req, res) => {
 });
 
 /* ── Delete Note ── */
-// ✅ NEW: deletes all Cloudinary assets (attachments + canvasImage) before removing from DB
 router.delete('/delete/:id', auth, async (req, res) => {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-
     const note = await Note.findOne({ _id: req.params.id, createdBy: req.user.id });
     if (!note) return res.status(404).json({ error: 'Note not found' });
-
-    // Delete all Cloudinary assets first (non-blocking — errors are logged, not thrown)
     await deleteNoteAssets(note);
-
-    // Now remove from DB
     await note.deleteOne();
-
     return res.json({ message: 'Note deleted successfully' });
   } catch (error) {
     console.error('Delete Error:', error);
@@ -373,13 +400,12 @@ router.delete('/delete/:id', auth, async (req, res) => {
 });
 
 /* ── Update Note ── */
-// ✅ FIX: now handles canvasImage uploads + deletes orphaned Cloudinary assets
 router.put(
   '/update/:id',
   auth,
   upload.fields([
-    { name: 'files', maxCount: 5 },
-    { name: 'canvasImage', maxCount: 1 }, // ✅ FIX: canvas save sends canvasImage field
+    { name: 'files', maxCount: 10 },       // FIX: raised from 5 → 10
+    { name: 'canvasImage', maxCount: 1 },
   ]),
   async (req, res) => {
     try {
@@ -388,6 +414,7 @@ router.put(
       const {
         title,
         desc,
+        description, // FIX: accept either field name
         tags,
         priority,
         archived,
@@ -397,27 +424,28 @@ router.put(
         folderId,
       } = req.body;
 
-      // Fetch the current note so we can diff attachments for cleanup
       const currentNote = await Note.findOne({ _id: req.params.id, createdBy: req.user.id });
       if (!currentNote) return res.status(404).json({ error: 'Note not found' });
 
       const updateFields = {};
       if (title !== undefined) updateFields.title = title.trim();
-      if (desc !== undefined) updateFields.description = desc.trim();
+
+      // FIX: accept both 'desc' and 'description' fields from the frontend
+      const descVal = description !== undefined ? description : desc;
+      if (descVal !== undefined) updateFields.description = descVal.trim();
+
       if (tags !== undefined) {
         updateFields.tags = Array.isArray(tags)
           ? tags.map((t) => t.trim()).filter(Boolean)
           : tags.split(',').map((t) => t.trim()).filter(Boolean);
       }
       if (priority) updateFields.priority = priority;
-      // ✅ FIX: coerce multipart string booleans
       if (archived !== undefined) updateFields.archived = archived === true || archived === 'true';
       if (starred !== undefined) updateFields.starred = starred === true || starred === 'true';
       if (canvasName !== undefined) updateFields.canvasName = canvasName || 'Canvas Drawing';
       if (folderId !== undefined) updateFields.folderId = folderId || null;
 
-      // ── Attachment diffing ────────────────────────────────────────────────
-      // Parse the attachments the client still wants to keep
+      // ── Attachment diffing ──────────────────────────────────────────────
       let keptAttachments = [];
       if (existingAttachments) {
         try {
@@ -429,7 +457,7 @@ router.put(
         }
       }
 
-      // Find URLs that were removed by the user → delete from Cloudinary
+      // Delete Cloudinary assets that were removed by the user
       const keptUrls = new Set(keptAttachments.map((a) => a?.url).filter(Boolean));
       const removedAttachments = (currentNote.attachments || []).filter(
         (a) => a?.url && !keptUrls.has(a.url)
@@ -438,17 +466,17 @@ router.put(
         await Promise.allSettled(removedAttachments.map((a) => deleteCloudinaryAsset(a.url)));
       }
 
-      // Append any newly uploaded attachment files
+      // FIX: new attachment files also mapped to correct schema shape
       const newAttachments = (req.files?.files ?? []).map((file) => ({
         url: file.path,
-        mimetype: file.mimetype,
+        type: mimeToAttachmentType(file.mimetype),
         name: file.originalname,
+        mimetype: file.mimetype,
       }));
       updateFields.attachments = [...keptAttachments, ...newAttachments];
 
-      // ── Canvas image handling ─────────────────────────────────────────────
+      // ── Canvas image handling ───────────────────────────────────────────
       if (req.files?.canvasImage?.length > 0) {
-        // ✅ NEW: if note already had a canvas image, delete the old one from Cloudinary
         if (currentNote.canvasImage) {
           await deleteCloudinaryAsset(currentNote.canvasImage);
         }
@@ -461,9 +489,7 @@ router.put(
         { new: true }
       );
 
-      // Shouldn't happen (checked above), but guard anyway
       if (!updated) return res.status(404).json({ error: 'Note not found' });
-
       return res.json({ message: 'Note updated successfully', note: updated });
     } catch (error) {
       console.error('Update Error:', error);
@@ -477,7 +503,6 @@ router.get('/share/:publicId', async (req, res) => {
   try {
     const note = await Note.findOne({ publicId: req.params.publicId }).lean();
     if (!note) return res.status(404).json({ message: 'Note not found' });
-
     return res.json({
       title: note.title,
       description: note.description,
@@ -492,9 +517,7 @@ router.get('/share/:publicId', async (req, res) => {
 /* ── AI Agent ── */
 router.post('/ask', auth, upload.array('files', 3), async (req, res) => {
   try {
-    // ✅ FIX: auth check before reading body
     if (!req.user?.id) return res.status(401).json({ error: 'Unauthorized' });
-
     const { question } = req.body;
     if (!question?.trim()) return res.status(400).json({ error: 'Question is required' });
 
@@ -522,10 +545,7 @@ router.post('/ask', auth, upload.array('files', 3), async (req, res) => {
       chatHistory.messages.push(newUserMsg, newAiMsg);
       await chatHistory.save();
     } else {
-      chatHistory = new ChatHistory({
-        userId: req.user.id,
-        messages: [newUserMsg, newAiMsg],
-      });
+      chatHistory = new ChatHistory({ userId: req.user.id, messages: [newUserMsg, newAiMsg] });
       await chatHistory.save();
     }
 

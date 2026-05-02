@@ -21,6 +21,9 @@ const userSchema = new mongoose.Schema(
       minlength: [6, "Password must be at least 6 characters long"],
       select: false, // hide by default when querying
     },
+    googleId: { type: String, default: "" },
+avatar:   { type: String, default: "" },
+password: { type: String, required: false, select: false },
   },
   { timestamps: true }
 );
