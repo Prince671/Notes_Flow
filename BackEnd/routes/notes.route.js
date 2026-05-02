@@ -8,7 +8,22 @@ const { storage, cloudinary } = require('../config/cloudinary.config');
 const ChatHistory = require('../models/chat.model');
 
 const router = express.Router();
-router.use(cors());
+
+// FIX 1: bare cors() on the router sends no Allow-Origin header when the
+// global app-level CORS middleware already ran — and it NEVER sends
+// Access-Control-Allow-Headers, which blocks multipart/form-data + Authorization
+// from Vercel → Render.  Use an explicit config that mirrors whatever origin
+// your frontend is deployed on (reads from env so you don't hard-code it).
+router.use(
+  cors({
+    origin: process.env.FRONTEND_URL || '*',           // set FRONTEND_URL=https://your-app.vercel.app in Render env
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  })
+);
+// Respond to CORS pre-flight for every route on this router
+// router.options('(.*)', cors()); // FIX: bare '*' breaks path-to-regexp v8+, use '(.*)' instead
 
 /* ─────────────────────────────────────────────────────────────
    MIME → ATTACHMENT TYPE MAPPER
@@ -63,14 +78,53 @@ const ALLOWED_MIME_TYPES = new Set([
   'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4',
 ]);
 
+// FIX 2 ─ ROOT CAUSE OF THE PRODUCTION ATTACHMENT BUG:
+// CloudinaryStorage defaults to resource_type:'image'.
+// On Render (production), uploading a PDF / .docx / video with resource_type:'image'
+// returns a Cloudinary 400 and the file is silently dropped.
+// Localhost never showed this because the error was swallowed differently by the
+// local Cloudinary SDK version.
+//
+// Fix: rebuild the storage instance here with resource_type:'auto' so every file
+// type — image, PDF, doc, video, audio — is accepted by Cloudinary.
+// (Also update your cloudinary.config.js as shown in the comment below for a
+//  permanent single-source fix.)
+//
+//  cloudinary.config.js should look like:
+//    const storage = new CloudinaryStorage({
+//      cloudinary,
+//      params: async (_req, _file) => ({
+//        folder: 'notes_attachments',
+//        resource_type: 'auto',   // ← this one line fixes everything
+//        use_filename: true,
+//        unique_filename: true,
+//      }),
+//    });
+
+let safeStorage = storage; // fallback to whatever was imported
+try {
+  const { CloudinaryStorage } = require('multer-storage-cloudinary');
+  safeStorage = new CloudinaryStorage({
+    cloudinary,
+    params: async (_req, _file) => ({
+      folder: 'notes_attachments',
+      resource_type: 'auto',  // allows images, PDFs, docs, video, audio
+      use_filename: true,
+      unique_filename: true,
+    }),
+  });
+} catch (e) {
+  // multer-storage-cloudinary not available — keep original storage
+  console.warn('[Multer] Could not create CloudinaryStorage with resource_type:auto, using imported storage:', e.message);
+}
+
 const upload = multer({
-  storage,
+  storage: safeStorage,
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_MIME_TYPES.has(file.mimetype)) {
       cb(null, true);
     } else {
-      // FIX: instead of throwing an error (which breaks multipart parsing),
-      //      skip the file gracefully and continue so other fields still parse.
+      // Skip unknown types gracefully so other fields still parse
       cb(null, false);
     }
   },
