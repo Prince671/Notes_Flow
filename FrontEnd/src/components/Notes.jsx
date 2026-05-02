@@ -1475,14 +1475,12 @@ const NoteCard = ({
               <Archive size={9} /> archived
             </span>
           )}
-          {(note.canvases?.length > 0 || note.canvasImage) && (
+          {note.canvasImage && (
             <span
               className="text-[11px] px-2 py-0.5 rounded-full font-semibold flex items-center gap-0.5"
               style={{ background: "rgba(99,102,241,0.12)", color: "#6366f1" }}
             >
-              <Brush size={9} />{" "}
-              {note.canvases?.length > 0 ? note.canvases.length : 1} canvas
-              {(note.canvases?.length || 1) > 1 ? "es" : ""}
+              <Brush size={9} /> canvas
             </span>
           )}
           {imageAttachments.length > 0 && (
@@ -1538,68 +1536,20 @@ const NoteCard = ({
           </div>
         )}
 
-        {/* Canvas previews (multiple) */}
-        {(note.canvases?.length > 0 || note.canvasImage) &&
-          (() => {
-            const canvasList =
-              note.canvases?.length > 0
-                ? note.canvases
-                : [
-                    {
-                      url: note.canvasImage,
-                      name: note.canvasName || "Canvas Drawing",
-                    },
-                  ];
-            return (
-              <div className="flex flex-col gap-1.5">
-                {canvasList
-                  .slice(0, isExpanded ? canvasList.length : 2)
-                  .map((cv, ci) => (
-                    <div
-                      key={ci}
-                      className="rounded-xl overflow-hidden border"
-                      style={{ borderColor: "var(--border-color)" }}
-                    >
-                      {canvasList.length > 1 && (
-                        <div
-                          className="flex items-center gap-1.5 px-2.5 py-1"
-                          style={{
-                            background: "var(--bg-tertiary)",
-                            borderBottom: "1px solid var(--border-color)",
-                          }}
-                        >
-                          <Brush size={9} style={{ color: "#6366f1" }} />
-                          <span
-                            className="text-[10px] font-semibold"
-                            style={{ color: "#6366f1" }}
-                          >
-                            {cv.name || `Canvas ${ci + 1}`}
-                          </span>
-                        </div>
-                      )}
-                      <img
-                        src={getFullUrl(cv.url)}
-                        alt={cv.name || `Canvas ${ci + 1}`}
-                        className={`w-full object-cover transition-all duration-300 ${isExpanded ? "max-h-64" : "max-h-28"}`}
-                        style={{ background: "#fff" }}
-                      />
-                    </div>
-                  ))}
-                {!isExpanded && canvasList.length > 2 && (
-                  <span
-                    className="text-[11px] px-2 py-0.5 rounded-md self-start"
-                    style={{
-                      background: "var(--bg-tertiary)",
-                      color: "var(--text-tertiary)",
-                    }}
-                  >
-                    +{canvasList.length - 2} more canvas
-                    {canvasList.length - 2 > 1 ? "es" : ""}
-                  </span>
-                )}
-              </div>
-            );
-          })()}
+        {/* Canvas preview */}
+        {note.canvasImage && (
+          <div
+            className="rounded-xl overflow-hidden border"
+            style={{ borderColor: "var(--border-color)" }}
+          >
+            <img
+              src={getFullUrl(note.canvasImage)}
+              alt="Canvas"
+              className={`w-full object-cover transition-all duration-300 ${isExpanded ? "max-h-64" : "max-h-28"}`}
+              style={{ background: "#fff" }}
+            />
+          </div>
+        )}
 
         {/* ── Image attachments preview (always visible) ── */}
         {imageAttachments.length > 0 && (
@@ -1800,7 +1750,9 @@ const NoteCard = ({
           style={{ color: "#6366f1", background: "rgba(99,102,241,0.08)" }}
         >
           <Brush size={12} />
-          <span className="hidden sm:inline">+ Canvas</span>
+          <span className="hidden sm:inline">
+            {note.canvasImage ? "Edit Canvas" : "Add Canvas"}
+          </span>
         </button>
         <button
           onClick={() => onMove(note)}
@@ -2025,12 +1977,6 @@ const RichTextEditor = ({ value, onChange, placeholder, minHeight = 160 }) => {
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          // Allow all standard keyboard shortcuts within the textarea
-          if (e.ctrlKey || e.metaKey) {
-            e.stopPropagation();
-          }
-        }}
         rows={6}
       />
       <div
@@ -2196,73 +2142,20 @@ const ViewNoteModal = ({
 
           {/* Scrollable body */}
           <div className="flex-1 overflow-y-auto px-5 sm:px-7 py-5 flex flex-col gap-5 scrollbar-thin">
-            {/* Canvas previews (multiple) */}
-            {(note.canvases?.length > 0 || note.canvasImage) &&
-              (() => {
-                const canvasList =
-                  note.canvases?.length > 0
-                    ? note.canvases
-                    : [
-                        {
-                          url: note.canvasImage,
-                          name: note.canvasName || "Canvas Drawing",
-                        },
-                      ];
-                return (
-                  <div className="flex flex-col gap-3">
-                    <p
-                      className="text-xs font-bold uppercase tracking-wider"
-                      style={{ color: "var(--text-tertiary)" }}
-                    >
-                      Canvas Drawings ({canvasList.length})
-                    </p>
-                    {canvasList.map((cv, ci) => (
-                      <div
-                        key={ci}
-                        className="rounded-xl overflow-hidden border"
-                        style={{ borderColor: "var(--border-color)" }}
-                      >
-                        <div
-                          className="flex items-center justify-between px-3 py-1.5"
-                          style={{
-                            background: "var(--bg-tertiary)",
-                            borderBottom: "1px solid var(--border-color)",
-                          }}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <Brush size={11} style={{ color: "#6366f1" }} />
-                            <span
-                              className="text-xs font-semibold"
-                              style={{ color: "#6366f1" }}
-                            >
-                              {cv.name || `Canvas ${ci + 1}`}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => {
-                              onCanvas(note, ci);
-                              onClose();
-                            }}
-                            className="text-[10px] flex items-center gap-1 px-2 py-1 rounded-lg font-semibold cursor-pointer border-none transition-all hover:opacity-80"
-                            style={{
-                              background: "rgba(99,102,241,0.12)",
-                              color: "#6366f1",
-                            }}
-                          >
-                            <Pencil size={10} /> Edit
-                          </button>
-                        </div>
-                        <img
-                          src={getFullUrl(cv.url)}
-                          alt={cv.name || `Canvas ${ci + 1}`}
-                          className="w-full object-contain max-h-64"
-                          style={{ background: "#fff" }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
+            {/* Canvas preview */}
+            {note.canvasImage && (
+              <div
+                className="rounded-xl overflow-hidden border"
+                style={{ borderColor: "var(--border-color)" }}
+              >
+                <img
+                  src={getFullUrl(note.canvasImage)}
+                  alt="Canvas"
+                  className="w-full object-contain max-h-64"
+                  style={{ background: "#fff" }}
+                />
+              </div>
+            )}
 
             {/* Content */}
             {note.description && (
@@ -2270,22 +2163,7 @@ const ViewNoteModal = ({
                 className="note-prose text-sm leading-relaxed"
                 style={{ color: "var(--text-secondary)" }}
               >
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    a: ({ href, children }) => (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ color: "var(--accent-primary)" }}
-                      >
-                        {children}
-                      </a>
-                    ),
-                  }}
-                >
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {note.description}
                 </ReactMarkdown>
               </div>
@@ -2413,7 +2291,8 @@ const ViewNoteModal = ({
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer transition-all border-none hover:opacity-90"
               style={{ background: "rgba(99,102,241,0.12)", color: "#6366f1" }}
             >
-              <Brush size={14} /> Add Canvas
+              <Brush size={14} />{" "}
+              {note.canvasImage ? "Edit Canvas" : "Add Canvas"}
             </button>
             <button
               onClick={onClose}
@@ -3147,7 +3026,6 @@ const Notes = () => {
   const [showCanvas, setShowCanvas] = useState(false);
   const [canvasNoteId, setCanvasNoteId] = useState(null);
   const [canvasExistingUrl, setCanvasExistingUrl] = useState(null);
-  const [canvasEditIndex, setCanvasEditIndex] = useState(null); // index within note.canvases, null = new canvas
   const [syncIndicator, setSyncIndicator] = useState(false);
 
   // ── Folder state ───────────────────────────────────────────────────────────
@@ -3348,33 +3226,23 @@ const Notes = () => {
   };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-  const normalizeNote = (n) => {
-    // Backward compat: if old canvasImage exists but no canvases array, migrate it
-    let canvases = Array.isArray(n.canvases) ? n.canvases : [];
-    if (canvases.length === 0 && n.canvasImage) {
-      canvases = [
-        { url: n.canvasImage, name: n.canvasName || "Canvas Drawing" },
-      ];
-    }
-    return {
-      ...n,
-      description: n.description ?? n.desc ?? "",
-      tags: Array.isArray(n.tags)
+  const normalizeNote = (n) => ({
+    ...n,
+    description: n.description ?? n.desc ?? "",
+    tags: Array.isArray(n.tags)
+      ? n.tags
+      : typeof n.tags === "string" && n.tags.length
         ? n.tags
-        : typeof n.tags === "string" && n.tags.length
-          ? n.tags
-              .split(",")
-              .map((t) => t.trim())
-              .filter(Boolean)
-          : [],
-      createdAt: n.createdAt ?? n.created_at ?? n.created ?? null,
-      attachments: n.attachments ?? [],
-      canvasImage: n.canvasImage ?? null,
-      canvasName: n.canvasName ?? "Canvas Drawing",
-      canvases,
-      folderId: n.folderId ?? null,
-    };
-  };
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean)
+        : [],
+    createdAt: n.createdAt ?? n.created_at ?? n.created ?? null,
+    attachments: n.attachments ?? [],
+    canvasImage: n.canvasImage ?? null,
+    canvasName: n.canvasName ?? "Canvas Drawing",
+    folderId: n.folderId ?? null,
+  });
 
   const getFullUrl = (url) => {
     if (!url) return "";
@@ -3576,10 +3444,6 @@ const Notes = () => {
         "existingAttachments",
         JSON.stringify(editingNote.attachments || []),
       );
-      // Persist canvases array (for removal support)
-      if (editingNote.canvases) {
-        formData.append("canvases", JSON.stringify(editingNote.canvases));
-      }
       selectedFiles.forEach((file) => formData.append("files", file));
       const res = await axios.put(
         `${API_BASE}/update/${editingNote._id}`,
@@ -3700,8 +3564,10 @@ const Notes = () => {
 
   const copyNote = async (note) => {
     try {
-      await navigator.clipboard.writeText(note.description || "");
-      addToast("Content copied to clipboard", "success");
+      await navigator.clipboard.writeText(
+        `${note.title}\n\n${note.description || ""}`,
+      );
+      addToast("Copied to clipboard", "success");
     } catch {
       addToast("Failed to copy", "error");
     }
@@ -4452,9 +4318,6 @@ const Notes = () => {
       formData.append("canvasImage", blob, "canvas.png");
       if (canvasNoteId) {
         if (savedCanvasName) formData.append("canvasName", savedCanvasName);
-        // Pass canvas index so backend knows which canvas slot to update
-        if (canvasEditIndex !== null)
-          formData.append("canvasIndex", canvasEditIndex);
         const res = await axios.put(
           `${API_BASE}/update/${canvasNoteId}`,
           formData,
@@ -4466,32 +4329,12 @@ const Notes = () => {
           },
         );
         const updated = res.data?.note ?? res.data;
-        if (updated) {
+        if (updated)
           setNotes((prev) =>
-            prev.map((n) => {
-              if (n._id !== canvasNoteId) return n;
-              const norm = normalizeNote(updated);
-              // If backend doesn't return canvases array, build it client-side
-              if (!norm.canvases || norm.canvases.length === 0) {
-                const existing = n.canvases ? [...n.canvases] : [];
-                const newEntry = {
-                  url: norm.canvasImage || n.canvasImage,
-                  name: savedCanvasName || "Canvas Drawing",
-                };
-                if (
-                  canvasEditIndex !== null &&
-                  canvasEditIndex < existing.length
-                ) {
-                  existing[canvasEditIndex] = newEntry;
-                } else {
-                  existing.push(newEntry);
-                }
-                return { ...norm, canvases: existing };
-              }
-              return norm;
-            }),
+            prev.map((n) =>
+              n._id === canvasNoteId ? normalizeNote(updated) : n,
+            ),
           );
-        }
       } else {
         const cName = savedCanvasName || canvasName || "Canvas Drawing";
         formData.append("title", cName);
@@ -4512,10 +4355,9 @@ const Notes = () => {
       setShowCanvas(false);
       setCanvasNoteId(null);
       setCanvasExistingUrl(null);
-      setCanvasEditIndex(null);
       setCanvasName("Canvas Drawing");
     } catch (err) {
-      addToast("Canvas save failed", "error");
+      addToast("Duplicate Canvas Name", "error");
     }
   };
 
@@ -4859,7 +4701,6 @@ const Notes = () => {
                     setShowCanvas(true);
                     setCanvasNoteId(null);
                     setCanvasExistingUrl(null);
-                    setCanvasEditIndex(null);
                   },
                 },
                 {
@@ -5023,7 +4864,6 @@ const Notes = () => {
                       setShowCanvas(true);
                       setCanvasNoteId(null);
                       setCanvasExistingUrl(null);
-                      setCanvasEditIndex(null);
                       setMobileMenuOpen(false);
                     },
                   },
@@ -5693,8 +5533,9 @@ const Notes = () => {
                   onCanvas={(n) => {
                     setShowCanvas(true);
                     setCanvasNoteId(n._id);
-                    setCanvasExistingUrl(null); // always new canvas
-                    setCanvasEditIndex(null);
+                    setCanvasExistingUrl(
+                      n.canvasImage ? getFullUrl(n.canvasImage) : null,
+                    );
                   }}
                   getFullUrl={getFullUrl}
                   formatDate={formatDate}
@@ -5720,27 +5561,12 @@ const Notes = () => {
             setSelectedFiles([]);
           }}
           onDelete={handleDeleteNote}
-          onCanvas={(n, ci) => {
+          onCanvas={(n) => {
             setShowCanvas(true);
             setCanvasNoteId(n._id);
-            if (ci !== undefined && ci !== null) {
-              const canvasList =
-                n.canvases?.length > 0
-                  ? n.canvases
-                  : [
-                      {
-                        url: n.canvasImage,
-                        name: n.canvasName || "Canvas Drawing",
-                      },
-                    ];
-              setCanvasExistingUrl(
-                canvasList[ci] ? getFullUrl(canvasList[ci].url) : null,
-              );
-              setCanvasEditIndex(ci);
-            } else {
-              setCanvasExistingUrl(null);
-              setCanvasEditIndex(null);
-            }
+            setCanvasExistingUrl(
+              n.canvasImage ? getFullUrl(n.canvasImage) : null,
+            );
           }}
           deletingId={deletingId}
         />
@@ -5893,131 +5719,64 @@ const Notes = () => {
                     style={{ color: "var(--text-secondary)" }}
                     className={formLabelCls}
                   >
-                    Canvas Drawings (
-                    {
-                      (editingNote.canvases?.length > 0
-                        ? editingNote.canvases
-                        : editingNote.canvasImage
-                          ? [
-                              {
-                                url: editingNote.canvasImage,
-                                name:
-                                  editingNote.canvasName || "Canvas Drawing",
-                              },
-                            ]
-                          : []
-                      ).length
-                    }
-                    )
+                    Canvas Drawing
                   </label>
-                  {/* Existing canvases */}
-                  {(() => {
-                    const canvasList =
-                      editingNote.canvases?.length > 0
-                        ? editingNote.canvases
-                        : editingNote.canvasImage
-                          ? [
-                              {
-                                url: editingNote.canvasImage,
-                                name:
-                                  editingNote.canvasName || "Canvas Drawing",
-                              },
-                            ]
-                          : [];
-                    return canvasList.map((cv, ci) => (
-                      <div
-                        key={ci}
-                        className="relative rounded-xl overflow-hidden border"
-                        style={{ borderColor: "var(--border-color)" }}
-                      >
-                        <div
-                          className="flex items-center justify-between px-3 py-1.5"
-                          style={{
-                            background: "var(--bg-tertiary)",
-                            borderBottom: "1px solid var(--border-color)",
+                  {editingNote.canvasImage ? (
+                    <div
+                      className="relative rounded-xl overflow-hidden border"
+                      style={{ borderColor: "var(--border-color)" }}
+                    >
+                      <img
+                        src={getFullUrl(editingNote.canvasImage)}
+                        alt="Canvas"
+                        className="w-full max-h-40 object-cover"
+                        style={{ background: "#fff" }}
+                      />
+                      <div className="absolute inset-0 bg-black/30 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => {
+                            setShowCanvas(true);
+                            setCanvasNoteId(editingNote._id);
+                            setCanvasExistingUrl(
+                              getFullUrl(editingNote.canvasImage),
+                            );
+                            setEditingNote(null);
                           }}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white"
+                          style={{ background: "rgba(99,102,241,0.9)" }}
                         >
-                          <span
-                            className="text-xs font-semibold flex items-center gap-1"
-                            style={{ color: "#6366f1" }}
-                          >
-                            <Brush size={10} /> {cv.name || `Canvas ${ci + 1}`}
-                          </span>
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => {
-                                setShowCanvas(true);
-                                setCanvasNoteId(editingNote._id);
-                                setCanvasExistingUrl(getFullUrl(cv.url));
-                                setCanvasEditIndex(ci);
-                                setEditingNote(null);
-                              }}
-                              className="text-[10px] flex items-center gap-1 px-2 py-1 rounded-lg font-semibold cursor-pointer border-none"
-                              style={{
-                                background: "rgba(99,102,241,0.12)",
-                                color: "#6366f1",
-                              }}
-                            >
-                              <Pencil size={9} /> Edit
-                            </button>
-                            <button
-                              onClick={() =>
-                                setEditingNote((p) => ({
-                                  ...p,
-                                  canvases: (p.canvases?.length > 0
-                                    ? p.canvases
-                                    : [
-                                        {
-                                          url: p.canvasImage,
-                                          name:
-                                            p.canvasName || "Canvas Drawing",
-                                        },
-                                      ]
-                                  ).filter((_, i) => i !== ci),
-                                  canvasImage:
-                                    ci === 0 && (p.canvases?.length || 1) === 1
-                                      ? null
-                                      : p.canvasImage,
-                                }))
-                              }
-                              className="text-[10px] flex items-center gap-1 px-2 py-1 rounded-lg font-semibold cursor-pointer border-none"
-                              style={{
-                                background: "rgba(239,68,68,0.1)",
-                                color: "#ef4444",
-                              }}
-                            >
-                              <Trash2 size={9} /> Remove
-                            </button>
-                          </div>
-                        </div>
-                        <img
-                          src={getFullUrl(cv.url)}
-                          alt={cv.name || `Canvas ${ci + 1}`}
-                          className="w-full max-h-32 object-cover"
-                          style={{ background: "#fff" }}
-                        />
+                          <Brush size={13} /> Edit Canvas
+                        </button>
+                        <button
+                          onClick={() =>
+                            setEditingNote((p) => ({ ...p, canvasImage: null }))
+                          }
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white"
+                          style={{ background: "rgba(239,68,68,0.9)" }}
+                        >
+                          <Trash2 size={13} /> Remove
+                        </button>
                       </div>
-                    ));
-                  })()}
-                  {/* Add new canvas button */}
-                  <button
-                    onClick={() => {
-                      setShowCanvas(true);
-                      setCanvasNoteId(editingNote._id);
-                      setCanvasExistingUrl(null);
-                      setCanvasEditIndex(null);
-                      setEditingNote(null);
-                    }}
-                    className="flex items-center gap-2 px-4 py-3 border-[1.5px] border-dashed rounded-xl text-sm font-medium cursor-pointer transition-all hover:bg-[var(--bg-hover)] hover:border-[var(--accent-primary)]"
-                    style={{
-                      background: "var(--bg-tertiary)",
-                      borderColor: "var(--border-color)",
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    <Brush size={16} style={{ color: "#6366f1" }} />
-                    <span>Add a new canvas drawing</span>
-                  </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setShowCanvas(true);
+                        setCanvasNoteId(editingNote._id);
+                        setCanvasExistingUrl(null);
+                        setEditingNote(null);
+                      }}
+                      className="flex items-center gap-2 px-4 py-3 border-[1.5px] border-dashed rounded-xl text-sm font-medium cursor-pointer transition-all hover:bg-[var(--bg-hover)] hover:border-[var(--accent-primary)]"
+                      style={{
+                        background: "var(--bg-tertiary)",
+                        borderColor: "var(--border-color)",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      <Brush size={16} style={{ color: "#6366f1" }} />
+                      <span>Add a canvas drawing</span>
+                    </button>
+                  )}
                 </div>
                 {/* Attachments */}
                 <div className="flex flex-col gap-1.5">
@@ -6226,23 +5985,15 @@ const Notes = () => {
             setShowCanvas(false);
             setCanvasNoteId(null);
             setCanvasExistingUrl(null);
-            setCanvasEditIndex(null);
           }}
           onSave={handleCanvasSave}
           existingCanvasUrl={canvasExistingUrl}
           noteId={canvasNoteId}
           initialCanvasName={
-            canvasNoteId && canvasEditIndex !== null
-              ? (() => {
-                  const n = notes.find((x) => x._id === canvasNoteId);
-                  return (
-                    n?.canvases?.[canvasEditIndex]?.name || "Canvas Drawing"
-                  );
-                })()
-              : canvasNoteId
-                ? notes.find((n) => n._id === canvasNoteId)?.canvasName ||
-                  "Canvas Drawing"
-                : canvasName
+            canvasNoteId
+              ? notes.find((n) => n._id === canvasNoteId)?.canvasName ||
+                "Canvas Drawing"
+              : canvasName
           }
         />
       )}
@@ -6256,7 +6007,6 @@ const Notes = () => {
             setShowCanvas(true);
             setCanvasNoteId(null);
             setCanvasExistingUrl(null);
-            setCanvasEditIndex(null);
           }}
           title="Open Canvas"
         >
