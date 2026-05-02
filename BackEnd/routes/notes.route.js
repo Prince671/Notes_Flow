@@ -23,7 +23,7 @@ router.use(
   })
 );
 // Respond to CORS pre-flight for every route on this router
-// router.options('(.*)', cors()); // FIX: bare '*' breaks path-to-regexp v8+, use '(.*)' instead
+router.options(/.*/, cors()); // FIX: bare '*' breaks path-to-regexp v8+, use '(.*)' instead
 
 /* ─────────────────────────────────────────────────────────────
    MIME → ATTACHMENT TYPE MAPPER
