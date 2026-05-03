@@ -25,34 +25,20 @@ import {
   Pencil,
   PanelLeftOpen,
   History,
+  Loader2,
 } from "lucide-react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { atomDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   STORAGE HELPERS  — sessions stored in localStorage per-user
+   HELPERS
 ───────────────────────────────────────────────────────────────────────────── */
-const STORAGE_KEY = "nf_chat_sessions";
+const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-const loadSessions = () => {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-  } catch {
-    return [];
-  }
-};
-const saveSessions = (sessions) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-  } catch {
-    /* quota exceeded – fail silently */
-  }
-};
-
-/* generate a ~6-word title from the first user message */
+/** derive a ≤48-char title from the first user message */
 const deriveTitle = (text = "") => {
   const words = text
     .trim()
@@ -60,21 +46,58 @@ const deriveTitle = (text = "") => {
     .split(/\s+/)
     .slice(0, 7);
   if (!words.length) return "New Chat";
-  const title = words.join(" ");
-  return title.length > 48 ? title.slice(0, 48) + "…" : title;
+  const t = words.join(" ");
+  return t.length > 48 ? t.slice(0, 48) + "…" : t;
 };
 
-const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+const fmt = (d) => {
+  if (!d) return "";
+  return new Date(d).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+
+const fmtDate = (d) => {
+  if (!d) return "";
+  const now = new Date();
+  const dt = new Date(d);
+  const diff = (now - dt) / 864e5;
+  if (diff < 1) return "Today";
+  if (diff < 2) return "Yesterday";
+  if (diff < 7) return dt.toLocaleDateString("en-US", { weekday: "long" });
+  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
+
+const groupByDate = (sessions) => {
+  const groups = {};
+  sessions.forEach((s) => {
+    const label = fmtDate(s.updatedAt || s.createdAt);
+    if (!groups[label]) groups[label] = [];
+    groups[label].push(s);
+  });
+  return groups;
+};
+
+const PROMPTS = [
+  { icon: "🔍", text: "Summarize my recent notes" },
+  { icon: "💡", text: "Find key ideas in my notes" },
+  { icon: "✍️", text: "Help me draft a note" },
+  { icon: "📊", text: "Organize and tag my ideas" },
+];
+
+const WELCOME_TEXT =
+  "Hello! I'm your **NoteFlow AI Assistant**. I can help you:\n\n- 🔍 Search and summarize your notes\n- ✍️ Draft and improve content\n- 💡 Answer questions from your notes\n- 📊 Organize and categorize ideas\n\nWhat would you like to explore today?";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    INJECT STYLES
 ───────────────────────────────────────────────────────────────────────────── */
 const injectAIStyles = () => {
-  if (document.getElementById("ai-sidebar-styles-v3")) return;
+  if (document.getElementById("ai-sidebar-styles-v4")) return;
   const s = document.createElement("style");
-  s.id = "ai-sidebar-styles-v3";
+  s.id = "ai-sidebar-styles-v4";
   s.textContent = `
-    /* ── typing dots ── */
     @keyframes ai-dot-bounce {
       0%,80%,100% { transform:translateY(0); opacity:.4; }
       40%          { transform:translateY(-5px); opacity:1; }
@@ -83,21 +106,18 @@ const injectAIStyles = () => {
     .ai-dot:nth-child(2){ animation-delay:.16s; }
     .ai-dot:nth-child(3){ animation-delay:.32s; }
 
-    /* ── message in ── */
     @keyframes ai-msg-in {
       from { opacity:0; transform:translateY(8px) scale(.98); }
       to   { opacity:1; transform:translateY(0) scale(1); }
     }
     .ai-msg { animation:ai-msg-in .24s cubic-bezier(.22,1,.36,1) both; }
 
-    /* ── session slide-in ── */
     @keyframes ai-sess-in {
       from { opacity:0; transform:translateX(-10px); }
       to   { opacity:1; transform:translateX(0); }
     }
     .ai-sess-item { animation:ai-sess-in .22s cubic-bezier(.22,1,.36,1) both; }
 
-    /* ── scroll pulse ── */
     @keyframes ai-scroll-pulse {
       0%,100%{ box-shadow:0 0 0 0 rgba(99,102,241,.4); }
       50%    { box-shadow:0 0 0 8px rgba(99,102,241,0); }
@@ -113,13 +133,11 @@ const injectAIStyles = () => {
     }
     .ai-mic-active { animation:ai-mic-pulse 1.2s ease-in-out infinite; }
 
-    /* ── gradient text ── */
     .ai-gradient-text {
       background:linear-gradient(135deg,var(--gradient-start,#1e40af),var(--gradient-end,#7c3aed));
       -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
     }
 
-    /* ── markdown ── */
     .ai-prose { font-size:.875rem; line-height:1.75; color:var(--text-primary); }
     .ai-prose p  { margin:0 0 .55em; }
     .ai-prose p:last-child { margin-bottom:0; }
@@ -155,41 +173,40 @@ const injectAIStyles = () => {
       color:var(--accent-primary); border:1px solid var(--border-color); white-space:nowrap;
     }
 
-    /* ── code block ── */
-    .ai-code-block { margin:.55em 0; border-radius:11px; overflow:hidden; border:1px solid rgba(99,102,241,.22); box-shadow:0 2px 12px rgba(0,0,0,.15); }
-    .ai-code-header { display:flex; align-items:center; justify-content:space-between; padding:7px 13px; background:#1a1d2e; border-bottom:1px solid rgba(255,255,255,.06); }
-    .ai-code-lang { font-family:'JetBrains Mono',monospace; font-size:.72rem; font-weight:600; color:rgba(167,139,250,.9); text-transform:uppercase; letter-spacing:.8px; display:flex; align-items:center; gap:5px; }
-    .ai-code-lang::before { content:''; display:inline-block; width:7px; height:7px; border-radius:50%; background:linear-gradient(135deg,#6366f1,#8b5cf6); }
-    .ai-code-copy-btn { display:flex; align-items:center; gap:4px; padding:3px 9px; border-radius:6px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.1); color:rgba(255,255,255,.6); font-size:10.5px; font-weight:600; cursor:pointer; font-family:inherit; transition:all .18s; }
-    .ai-code-copy-btn:hover { background:rgba(99,102,241,.25); color:#fff; border-color:rgba(99,102,241,.4); }
-    .ai-code-copy-btn.copied { background:rgba(16,185,129,.2); color:#34d399; border-color:rgba(16,185,129,.3); }
-    .ai-code-block pre { margin:0!important; border-radius:0!important; }
+    /* ── code block: light grey ChatGPT/Claude style ── */
+    .ai-code-block { margin:.6em 0; border-radius:10px; overflow:hidden; border:1px solid #e2e4e9; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+    .ai-code-header { display:flex; align-items:center; justify-content:space-between; padding:8px 14px; background:#f0f1f3; border-bottom:1px solid #e2e4e9; }
+    .ai-code-lang { font-family:'JetBrains Mono','Fira Code',ui-monospace,monospace; font-size:.7rem; font-weight:600; color:#555e6e; text-transform:uppercase; letter-spacing:.7px; display:flex; align-items:center; gap:6px; }
+    .ai-code-lang::before { content:''; display:inline-block; width:6px; height:6px; border-radius:50%; background:#6366f1; }
+    .ai-code-copy-btn { display:flex; align-items:center; gap:4px; padding:3px 10px; border-radius:6px; background:#fff; border:1px solid #d1d5db; color:#555e6e; font-size:10.5px; font-weight:600; cursor:pointer; font-family:inherit; transition:all .18s; }
+    .ai-code-copy-btn:hover { background:#e8eaf0; color:#374151; border-color:#b0b7c3; }
+    .ai-code-copy-btn.copied { background:#ecfdf5; color:#059669; border-color:#6ee7b7; }
+    .ai-code-body { background:#f6f7f9; }
+    .ai-code-block pre { margin:0!important; border-radius:0!important; background:#f6f7f9!important; }
 
-    /* ── scrollbar ── */
     .ai-scrollbar::-webkit-scrollbar { width:4px; }
     .ai-scrollbar::-webkit-scrollbar-track { background:transparent; }
     .ai-scrollbar::-webkit-scrollbar-thumb { background:var(--border-hover,#cbd5e1); border-radius:999px; }
 
-    /* ── resize handle ── */
     .ai-resize-handle:hover { background:var(--accent-primary)!important; opacity:.6; }
-
-    /* ── copy btn hover ── */
     .ai-msg-group:hover .ai-msg-copy { opacity:1!important; }
     .ai-msg-copy { opacity:0; transition:opacity .18s; }
 
-    /* ── history session item hover ── */
     .ai-sess-btn { transition:all .18s; }
     .ai-sess-btn:hover { background:var(--bg-hover)!important; }
     .ai-sess-btn.active { background:var(--accent-light)!important; border-color:rgba(99,102,241,.3)!important; }
 
-    /* ── history panel slide ── */
     @keyframes ai-hist-in {
       from { transform:translateX(-100%); opacity:0; }
       to   { transform:translateX(0); opacity:1; }
     }
     .ai-hist-panel { animation:ai-hist-in .28s cubic-bezier(.22,1,.36,1) both; }
 
-    /* ── mobile ── */
+    @keyframes ai-fade-in {
+      from { opacity:0; } to { opacity:1; }
+    }
+    .ai-fade-in { animation:ai-fade-in .22s ease both; }
+
     @media (max-width:640px) {
       .ai-sidebar-wrap { width:100%!important; max-width:100%!important; }
       .ai-prose { font-size:.8125rem!important; }
@@ -204,68 +221,43 @@ const injectAIStyles = () => {
       .ai-hist-panel { width:100%!important; }
     }
     @media (min-width:641px) {
-      .ai-hist-panel { width:260px!important; }
+      .ai-hist-panel { width:270px!important; }
     }
   `;
   document.head.appendChild(s);
 };
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   HELPERS
-───────────────────────────────────────────────────────────────────────────── */
-const fmt = (d) => {
-  if (!d) return "";
-  return new Date(d).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  });
-};
-
-const fmtDate = (d) => {
-  if (!d) return "";
-  const now = new Date();
-  const dt = new Date(d);
-  const diff = (now - dt) / 864e5;
-  if (diff < 1) return "Today";
-  if (diff < 2) return "Yesterday";
-  if (diff < 7) return dt.toLocaleDateString("en-US", { weekday: "long" });
-  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-};
-
-const groupByDate = (sessions) => {
-  const groups = {};
-  sessions.forEach((s) => {
-    const label = fmtDate(s.createdAt);
-    if (!groups[label]) groups[label] = [];
-    groups[label].push(s);
-  });
-  return groups;
-};
-
-const PROMPTS = [
-  { icon: "🔍", text: "Summarize my recent notes" },
-  { icon: "💡", text: "Find key ideas in my notes" },
-  { icon: "✍️", text: "Help me draft a note" },
-  { icon: "📊", text: "Organize and tag my ideas" },
-];
-
-const WELCOME_TEXT =
-  "Hello! I'm your **NoteFlow AI Assistant**. I can help you:\n\n- 🔍 Search and summarize your notes\n- ✍️ Draft and improve content\n- 💡 Answer questions from your notes\n- 📊 Organize and categorize ideas\n\nWhat would you like to explore today?";
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   CODE BLOCK
+   CODE BLOCK  — light grey, ChatGPT/Claude style
 ───────────────────────────────────────────────────────────────────────────── */
 const CodeBlock = ({ inline, className, children }) => {
   const [copied, setCopied] = useState(false);
   const match = /language-(\w+)/.exec(className || "");
   const code = String(children).replace(/\n$/, "");
-  const lang = match?.[1] ?? "code";
+  const lang = match?.[1] ?? "text";
 
-  if (inline) return <code className={className}>{children}</code>;
+  if (inline) {
+    return (
+      <code
+        style={{
+          background: "#f0f1f3",
+          padding: "1px 6px",
+          borderRadius: 5,
+          fontFamily: "'JetBrains Mono','Fira Code',ui-monospace,monospace",
+          fontSize: ".82em",
+          color: "#374151",
+          border: "1px solid #e2e4e9",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {children}
+      </code>
+    );
+  }
 
   return (
     <div className="ai-code-block">
+      {/* Header: language label + copy button */}
       <div className="ai-code-header">
         <span className="ai-code-lang">{lang}</span>
         <button
@@ -289,19 +281,30 @@ const CodeBlock = ({ inline, className, children }) => {
           )}
         </button>
       </div>
-      <SyntaxHighlighter
-        style={atomDark}
-        language={lang}
-        PreTag="div"
-        customStyle={{
-          margin: 0,
-          borderRadius: 0,
-          fontSize: ".78rem",
-          background: "#0d0f1c",
-        }}
-      >
-        {code}
-      </SyntaxHighlighter>
+
+      {/* Body: light grey background, color-coded syntax */}
+      <div className="ai-code-body">
+        <SyntaxHighlighter
+          style={oneLight}
+          language={lang}
+          PreTag="div"
+          customStyle={{
+            margin: 0,
+            borderRadius: 0,
+            fontSize: ".8rem",
+            lineHeight: 1.65,
+            background: "#f6f7f9",
+            padding: "14px 16px",
+          }}
+          codeTagProps={{
+            style: {
+              fontFamily: "'JetBrains Mono','Fira Code',ui-monospace,monospace",
+            },
+          }}
+        >
+          {code}
+        </SyntaxHighlighter>
+      </div>
     </div>
   );
 };
@@ -310,12 +313,13 @@ const CodeBlock = ({ inline, className, children }) => {
    MESSAGE BUBBLE
 ───────────────────────────────────────────────────────────────────────────── */
 const MessageBubble = ({ msg, onCopy, copiedId, getFullUrl }) => {
-  const isAI = msg.sender === "ai";
+  const isAI = msg.role === "ai";
   const isErr = msg.isError;
+  const id = msg._id || msg.id;
 
   return (
     <div
-      className={`ai-msg ai-msg-group`}
+      className="ai-msg ai-msg-group"
       style={{
         display: "flex",
         gap: 9,
@@ -381,12 +385,12 @@ const MessageBubble = ({ msg, onCopy, copiedId, getFullUrl }) => {
           >
             {isAI ? "AI Assistant" : "You"}
           </span>
-          {msg.timestamp && (
+          {(msg.createdAt || msg.timestamp) && (
             <span
               className="ai-msg-time"
               style={{ fontSize: 9.5, color: "var(--text-tertiary)" }}
             >
-              {fmt(msg.timestamp)}
+              {fmt(msg.createdAt || msg.timestamp)}
             </span>
           )}
         </div>
@@ -500,37 +504,39 @@ const MessageBubble = ({ msg, onCopy, copiedId, getFullUrl }) => {
         </div>
 
         {/* Copy btn */}
-        <button
-          className="ai-msg-copy"
-          onClick={() => onCopy(msg.text, msg.id)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 3,
-            padding: "2px 8px",
-            borderRadius: 6,
-            background: "var(--bg-tertiary)",
-            border: "1px solid var(--border-color)",
-            color: copiedId === msg.id ? "#10b981" : "var(--text-tertiary)",
-            fontSize: 10.5,
-            fontWeight: 600,
-            cursor: "pointer",
-            fontFamily: "inherit",
-            transition: "all .18s",
-          }}
-        >
-          {copiedId === msg.id ? (
-            <>
-              <Check size={10} />
-              Copied
-            </>
-          ) : (
-            <>
-              <Copy size={10} />
-              Copy
-            </>
-          )}
-        </button>
+        {isAI && !isErr && (
+          <button
+            className="ai-msg-copy"
+            onClick={() => onCopy(msg.text, id)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "3px 8px",
+              borderRadius: 6,
+              border: "1px solid var(--border-color)",
+              background: "var(--bg-secondary)",
+              cursor: "pointer",
+              fontSize: 10.5,
+              fontWeight: 600,
+              color: "var(--text-tertiary)",
+              fontFamily: "inherit",
+              transition: "all .18s",
+            }}
+          >
+            {copiedId === id ? (
+              <>
+                <Check size={10} style={{ color: "#10b981" }} />
+                Copied
+              </>
+            ) : (
+              <>
+                <Copy size={10} />
+                Copy
+              </>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -787,7 +793,7 @@ const Modal = ({
 );
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   HISTORY PANEL  (left slide-in, ChatGPT-style)
+   HISTORY PANEL
 ───────────────────────────────────────────────────────────────────────────── */
 const HistoryPanel = ({
   sessions,
@@ -797,16 +803,17 @@ const HistoryPanel = ({
   onDelete,
   onRename,
   onClose,
+  loading,
 }) => {
-  const [renaming, setRenaming] = useState(null); // session id being renamed
+  const [renaming, setRenaming] = useState(null);
   const [renameVal, setRenameVal] = useState("");
   const [menuId, setMenuId] = useState(null);
-  const groups = groupByDate([...sessions].reverse());
+  const groups = groupByDate([...sessions]);
 
   const startRename = (s, e) => {
     e.stopPropagation();
     setMenuId(null);
-    setRenaming(s.id);
+    setRenaming(s._id);
     setRenameVal(s.title);
   };
 
@@ -906,12 +913,26 @@ const HistoryPanel = ({
         </button>
       </div>
 
-      {/* Sessions list */}
+      {/* Session list */}
       <div
         className="ai-scrollbar"
         style={{ flex: 1, overflowY: "auto", padding: "0 8px 12px" }}
       >
-        {sessions.length === 0 ? (
+        {loading ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "32px 0",
+              gap: 8,
+              color: "var(--text-tertiary)",
+              fontSize: 12,
+            }}
+          >
+            <Loader2 size={16} className="ai-spin" /> Loading…
+          </div>
+        ) : sessions.length === 0 ? (
           <div style={{ textAlign: "center", padding: "32px 16px" }}>
             <MessageSquare
               size={28}
@@ -947,7 +968,7 @@ const HistoryPanel = ({
               </p>
               {group.map((s, idx) => (
                 <div
-                  key={s.id}
+                  key={s._id}
                   className="ai-sess-item"
                   style={{
                     animationDelay: `${idx * 0.04}s`,
@@ -955,7 +976,7 @@ const HistoryPanel = ({
                     marginBottom: 2,
                   }}
                 >
-                  {renaming === s.id ? (
+                  {renaming === s._id ? (
                     <input
                       autoFocus
                       value={renameVal}
@@ -976,6 +997,7 @@ const HistoryPanel = ({
                         fontFamily: "inherit",
                         outline: "none",
                         boxShadow: "0 0 0 3px var(--accent-light)",
+                        boxSizing: "border-box",
                       }}
                     />
                   ) : (
@@ -987,9 +1009,9 @@ const HistoryPanel = ({
                       }}
                     >
                       <button
-                        className={`ai-sess-btn${s.id === activeId ? " active" : ""}`}
+                        className={`ai-sess-btn${s._id === activeId ? " active" : ""}`}
                         onClick={() => {
-                          onSelect(s.id);
+                          onSelect(s._id);
                           onClose();
                         }}
                         style={{
@@ -997,11 +1019,11 @@ const HistoryPanel = ({
                           display: "flex",
                           alignItems: "center",
                           gap: 8,
-                          padding: "8px 10px",
+                          padding: "8px 32px 8px 10px",
                           borderRadius: 9,
-                          border: `1px solid ${s.id === activeId ? "rgba(99,102,241,.28)" : "transparent"}`,
+                          border: `1px solid ${s._id === activeId ? "rgba(99,102,241,.28)" : "transparent"}`,
                           background:
-                            s.id === activeId
+                            s._id === activeId
                               ? "var(--accent-light)"
                               : "transparent",
                           color: "var(--text-primary)",
@@ -1017,7 +1039,7 @@ const HistoryPanel = ({
                           style={{
                             flexShrink: 0,
                             color:
-                              s.id === activeId
+                              s._id === activeId
                                 ? "var(--accent-primary)"
                                 : "var(--text-tertiary)",
                           }}
@@ -1027,12 +1049,12 @@ const HistoryPanel = ({
                             style={{
                               margin: 0,
                               fontSize: 12.5,
-                              fontWeight: s.id === activeId ? 700 : 500,
+                              fontWeight: s._id === activeId ? 700 : 500,
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
                               color:
-                                s.id === activeId
+                                s._id === activeId
                                   ? "var(--accent-primary)"
                                   : "var(--text-primary)",
                             }}
@@ -1046,17 +1068,16 @@ const HistoryPanel = ({
                               color: "var(--text-tertiary)",
                             }}
                           >
-                            {s.messages?.filter((m) => m.sender === "user")
-                              .length || 0}{" "}
-                            messages
+                            {s.userMsgCount ?? 0} messages
                           </p>
                         </div>
                       </button>
-                      {/* 3-dot menu */}
+
+                      {/* 3-dot menu btn */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setMenuId(menuId === s.id ? null : s.id);
+                          setMenuId(menuId === s._id ? null : s._id);
                         }}
                         style={{
                           position: "absolute",
@@ -1071,14 +1092,17 @@ const HistoryPanel = ({
                           alignItems: "center",
                           justifyContent: "center",
                           color: "var(--text-tertiary)",
-                          opacity: menuId === s.id || s.id === activeId ? 1 : 0,
+                          opacity:
+                            menuId === s._id || s._id === activeId ? 1 : 0,
                           transition: "opacity .18s",
                         }}
+                        className="ai-sess-btn"
                       >
                         <MoreHorizontal size={13} />
                       </button>
+
                       {/* Dropdown */}
-                      {menuId === s.id && (
+                      {menuId === s._id && (
                         <div
                           style={{
                             position: "absolute",
@@ -1125,7 +1149,7 @@ const HistoryPanel = ({
                             onClick={(e) => {
                               e.stopPropagation();
                               setMenuId(null);
-                              onDelete(s.id);
+                              onDelete(s._id);
                             }}
                             style={{
                               width: "100%",
@@ -1171,11 +1195,14 @@ const HistoryPanel = ({
    MAIN COMPONENT
 ───────────────────────────────────────────────────────────────────────────── */
 const AIAgentSidebar = ({ isOpen, onClose }) => {
-  /* ── sessions (persisted) ── */
-  const [sessions, setSessions] = useState(() => loadSessions());
+  // ── Sessions from DB ──
+  const [sessions, setSessions] = useState([]); // lightweight list (no messages)
   const [activeSessionId, setActiveSessionId] = useState(null);
+  const [activeMessages, setActiveMessages] = useState([]); // messages of the open session
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState(false);
 
-  /* ── ui state ── */
+  // ── UI state ──
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(440);
@@ -1190,15 +1217,30 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const abortRef = useRef(null);
-  const msgCounterRef = useRef(0);
   const recognitionRef = useRef(null);
   const textareaRef = useRef(null);
-  const menuOutsideRef = useRef(null);
+  // Track the last logged-in userId so we can detect logout/account switch
+  const lastUserIdRef = useRef(null);
 
   const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(
     /\/notes\/?$/,
     "",
   );
+  const CHAT_API = `${API_BASE}/chat`;
+
+  const token = () => localStorage.getItem("token");
+
+  /** Decode userId from JWT payload (no library needed) */
+  const getUserIdFromToken = () => {
+    try {
+      const t = token();
+      if (!t) return null;
+      const payload = JSON.parse(atob(t.split(".")[1]));
+      return payload?.id || payload?.userId || payload?.sub || null;
+    } catch {
+      return null;
+    }
+  };
 
   const getFullUrl = (url) => {
     if (!url) return "";
@@ -1207,34 +1249,12 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
     return `${base}${url.startsWith("/") ? url : `/${url}`}`;
   };
 
-  /* ── active session ── */
-  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
-  const messages = activeSession?.messages ?? [];
-
-  /* ── persist on change ── */
-  useEffect(() => {
-    saveSessions(sessions);
-  }, [sessions]);
-
   /* ── inject styles ── */
   useEffect(() => {
     injectAIStyles();
   }, []);
 
-  /* ── on open: ensure there's at least one session ── */
-  useEffect(() => {
-    if (!isOpen) return;
-    if (sessions.length > 0) {
-      if (!activeSessionId || !sessions.find((s) => s.id === activeSessionId)) {
-        setActiveSessionId(sessions[sessions.length - 1].id);
-      }
-    } else {
-      createNewSession();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
-
-  /* ── scroll to bottom ── */
+  /* ── scroll to bottom on new messages ── */
   const scrollToBottom = useCallback((smooth = true) => {
     messagesEndRef.current?.scrollIntoView({
       behavior: smooth ? "smooth" : "auto",
@@ -1242,7 +1262,7 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
   }, []);
   useEffect(() => {
     scrollToBottom();
-  }, [messages, scrollToBottom]);
+  }, [activeMessages, scrollToBottom]);
 
   const handleScroll = () => {
     const el = messagesContainerRef.current;
@@ -1268,9 +1288,8 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
   }, []);
 
   const toggleListening = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-    } else {
+    if (isListening) recognitionRef.current?.stop();
+    else {
       recognitionRef.current?.start();
       setIsListening(true);
     }
@@ -1309,60 +1328,337 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
   /* ── abort on unmount ── */
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const genId = () => {
-    msgCounterRef.current += 1;
-    return `m-${msgCounterRef.current}-${Date.now()}`;
-  };
+  /* ───────────────────────────────────────────────────────────────────────────
+     DB HELPERS
+  ─────────────────────────────────────────────────────────────────────────── */
 
-  /* ── session management ── */
-  const createNewSession = (initialMessages) => {
-    const id = uid();
-    const sess = {
-      id,
-      title: "New Chat",
-      createdAt: new Date().toISOString(),
-      messages: initialMessages ?? [],
-    };
-    setSessions((p) => [...p, sess]);
-    setActiveSessionId(id);
-    return id;
-  };
+  /** Fetch the session list (lightweight, no messages) */
+  const fetchSessions = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await axios.get(`${CHAT_API}/history`, {
+        headers: { Authorization: `Bearer ${token()}` },
+      });
+      setSessions(res.data.sessions || []);
+    } catch (err) {
+      console.error("fetchSessions error", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [CHAT_API]);
 
-  const updateSessionMessages = (sessId, updater) => {
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === sessId
-          ? {
-              ...s,
-              messages:
-                typeof updater === "function" ? updater(s.messages) : updater,
-            }
-          : s,
-      ),
-    );
-  };
-
-  const updateSessionTitle = (sessId, title) => {
-    setSessions((prev) =>
-      prev.map((s) => (s.id === sessId ? { ...s, title } : s)),
-    );
-  };
-
-  const deleteSession = (sessId) => {
-    setSessions((prev) => {
-      const next = prev.filter((s) => s.id !== sessId);
-      if (activeSessionId === sessId) {
-        setActiveSessionId(next.length > 0 ? next[next.length - 1].id : null);
-        if (next.length === 0) setTimeout(() => createNewSession(), 50);
+  /** Fetch full messages for one session */
+  const fetchSessionMessages = useCallback(
+    async (sessId) => {
+      if (!sessId) return;
+      setMessagesLoading(true);
+      try {
+        const res = await axios.get(`${CHAT_API}/history/${sessId}`, {
+          headers: { Authorization: `Bearer ${token()}` },
+        });
+        setActiveMessages(res.data.session?.messages || []);
+      } catch (err) {
+        console.error("fetchSessionMessages error", err);
+        setActiveMessages([]);
+      } finally {
+        setMessagesLoading(false);
       }
-      return next;
-    });
-  };
+    },
+    [CHAT_API],
+  );
 
-  const handleNewChat = () => {
-    createNewSession();
+  /** Create a new session in DB, returns the session object */
+  const createSessionInDB = useCallback(
+    async (title = "New Chat") => {
+      const res = await axios.post(
+        `${CHAT_API}/session`,
+        { title },
+        { headers: { Authorization: `Bearer ${token()}` } },
+      );
+      return res.data.session;
+    },
+    [CHAT_API],
+  );
+
+  /** Append a message to a session in DB */
+  const appendMessageToDB = useCallback(
+    async (sessId, { role, text, isError = false, files = [] }) => {
+      try {
+        const res = await axios.post(
+          `${CHAT_API}/session/${sessId}/message`,
+          { role, text, isError, files },
+          { headers: { Authorization: `Bearer ${token()}` } },
+        );
+        return res.data.message;
+      } catch (err) {
+        console.error("appendMessageToDB error", err);
+        return null;
+      }
+    },
+    [CHAT_API],
+  );
+
+  /** Rename a session in DB */
+  const renameSessionInDB = useCallback(
+    async (sessId, title) => {
+      try {
+        await axios.patch(
+          `${CHAT_API}/session/${sessId}/title`,
+          { title },
+          { headers: { Authorization: `Bearer ${token()}` } },
+        );
+        // Update local list
+        setSessions((prev) =>
+          prev.map((s) => (s._id === sessId ? { ...s, title } : s)),
+        );
+      } catch (err) {
+        console.error("renameSessionInDB error", err);
+      }
+    },
+    [CHAT_API],
+  );
+
+  /** Delete a session from DB */
+  const deleteSessionInDB = useCallback(
+    async (sessId) => {
+      try {
+        await axios.delete(`${CHAT_API}/session/${sessId}`, {
+          headers: { Authorization: `Bearer ${token()}` },
+        });
+        setSessions((prev) => {
+          const next = prev.filter((s) => s._id !== sessId);
+          if (activeSessionId === sessId) {
+            if (next.length > 0) {
+              setActiveSessionId(next[0]._id);
+              fetchSessionMessages(next[0]._id);
+            } else {
+              setActiveSessionId(null);
+              setActiveMessages([]);
+            }
+          }
+          return next;
+        });
+      } catch (err) {
+        console.error("deleteSessionInDB error", err);
+      }
+    },
+    [CHAT_API, activeSessionId, fetchSessionMessages],
+  );
+
+  /* ── on open: detect user change (logout) → always start fresh ── */
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const currentUserId = getUserIdFromToken();
+
+    // User logged out or switched account — wipe all local state first
+    if (lastUserIdRef.current && lastUserIdRef.current !== currentUserId) {
+      setSessions([]);
+      setActiveSessionId(null);
+      setActiveMessages([]);
+      setInputMessage("");
+      setChatFiles([]);
+    }
+
+    lastUserIdRef.current = currentUserId;
+
+    // No token → don't try to fetch (guest/logged-out state)
+    if (!currentUserId) return;
+
+    // Fetch sessions for this user; always start on a blank new chat
+    setActiveSessionId(null);
+    setActiveMessages([]);
+    fetchSessions();
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sessions loaded — do NOT auto-select any session.
+  // The sidebar always opens on a fresh blank chat.
+  // The user picks a previous conversation via the History panel.
+  // (No useEffect needed here for auto-selection)
+
+  /* ── when active session changes, load its messages ── */
+  const handleSelectSession = useCallback(
+    async (sessId) => {
+      setActiveSessionId(sessId);
+      setActiveMessages([]);
+      await fetchSessionMessages(sessId);
+      setShowHistory(false);
+    },
+    [fetchSessionMessages],
+  );
+
+  /* ───────────────────────────────────────────────────────────────────────────
+     NEW CHAT
+  ─────────────────────────────────────────────────────────────────────────── */
+  const handleNewChat = useCallback(async () => {
     setInputMessage("");
     setChatFiles([]);
+    setActiveMessages([]);
+    setActiveSessionId(null);
+    setShowHistory(false);
+  }, []);
+
+  /* ───────────────────────────────────────────────────────────────────────────
+     SEND MESSAGE
+  ─────────────────────────────────────────────────────────────────────────── */
+  const handleSendMessage = useCallback(
+    async (e) => {
+      e?.preventDefault();
+      if ((!inputMessage.trim() && chatFiles.length === 0) || isLoading) return;
+
+      const savedInput = inputMessage.trim();
+      const savedFiles = [...chatFiles];
+      setInputMessage("");
+      setChatFiles([]);
+      setIsLoading(true);
+      abortRef.current = new AbortController();
+
+      // ── 1. Optimistic user message for instant display ──
+      const optimisticUserMsg = {
+        _id: `opt-${Date.now()}`,
+        role: "user",
+        text: savedInput,
+        files: savedFiles.map((f) => ({ name: f.name, type: f.type })),
+        createdAt: new Date().toISOString(),
+      };
+      setActiveMessages((prev) => [...prev, optimisticUserMsg]);
+
+      try {
+        // ── 2. Ensure we have a session ──
+        let sessId = activeSessionId;
+        let isNewSession = false;
+        if (!sessId) {
+          // Create new session; title will be auto-set below
+          const newSess = await createSessionInDB("New Chat");
+          sessId = newSess._id;
+          setActiveSessionId(sessId);
+          isNewSession = true;
+          // Add to local list immediately
+          setSessions((prev) => [{ ...newSess, userMsgCount: 0 }, ...prev]);
+        }
+
+        // ── 3. Auto-title on first user message of a new/blank session ──
+        const isFirstMsg = activeMessages.length === 0;
+        if (isFirstMsg || isNewSession) {
+          const autoTitle = deriveTitle(savedInput);
+          // Fire-and-forget rename (don't await to keep UI snappy)
+          renameSessionInDB(sessId, autoTitle);
+        }
+
+        // ── 4. Persist user message to DB ──
+        const savedUserMsg = await appendMessageToDB(sessId, {
+          role: "user",
+          text: savedInput,
+          files: savedFiles.map((f) => ({ name: f.name, type: f.type })),
+        });
+        // Replace optimistic msg with DB msg (keeps _id consistent)
+        if (savedUserMsg) {
+          setActiveMessages((prev) =>
+            prev.map((m) =>
+              m._id === optimisticUserMsg._id
+                ? { ...savedUserMsg, role: "user" }
+                : m,
+            ),
+          );
+        }
+
+        // ── 5. Update session message count in sidebar ──
+        setSessions((prev) =>
+          prev.map((s) =>
+            s._id === sessId
+              ? {
+                  ...s,
+                  userMsgCount: (s.userMsgCount || 0) + 1,
+                  updatedAt: new Date().toISOString(),
+                }
+              : s,
+          ),
+        );
+
+        // ── 6. Call AI ──
+        const fd = new FormData();
+        fd.append("question", savedInput);
+        savedFiles.forEach((f) => fd.append("files", f));
+        const res = await axios.post(`${API_BASE}/notes/ask`, fd, {
+          headers: {
+            Authorization: `Bearer ${token()}`,
+            "Content-Type": "multipart/form-data",
+          },
+          signal: abortRef.current.signal,
+        });
+
+        const aiText =
+          res.data.answer || "Sorry, I couldn't generate an answer.";
+
+        // ── 7. Optimistic AI message ──
+        const optimisticAiMsg = {
+          _id: `opt-ai-${Date.now()}`,
+          role: "ai",
+          text: aiText,
+          createdAt: new Date().toISOString(),
+        };
+        setActiveMessages((prev) => [...prev, optimisticAiMsg]);
+
+        // ── 8. Persist AI message to DB ──
+        const savedAiMsg = await appendMessageToDB(sessId, {
+          role: "ai",
+          text: aiText,
+        });
+        if (savedAiMsg) {
+          setActiveMessages((prev) =>
+            prev.map((m) =>
+              m._id === optimisticAiMsg._id ? { ...savedAiMsg, role: "ai" } : m,
+            ),
+          );
+        }
+      } catch (err) {
+        if (axios.isCancel(err) || err.name === "CanceledError") return;
+
+        // ── Error message ──
+        const errText = `⚠️ **Something went wrong**\n\n${err.response?.data?.error || err.message}\n\nPlease try again.`;
+        const optimisticErrMsg = {
+          _id: `opt-err-${Date.now()}`,
+          role: "ai",
+          isError: true,
+          text: errText,
+          createdAt: new Date().toISOString(),
+        };
+        setActiveMessages((prev) => [...prev, optimisticErrMsg]);
+
+        if (activeSessionId) {
+          appendMessageToDB(activeSessionId, {
+            role: "ai",
+            text: errText,
+            isError: true,
+          });
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [
+      inputMessage,
+      chatFiles,
+      isLoading,
+      activeSessionId,
+      activeMessages,
+      createSessionInDB,
+      appendMessageToDB,
+      renameSessionInDB,
+      API_BASE,
+    ],
+  );
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  const handlePromptClick = (text) => {
+    setInputMessage(text);
+    textareaRef.current?.focus();
   };
 
   /* ── copy ── */
@@ -1380,113 +1676,33 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
   const removeFile = (i) =>
     setChatFiles((p) => p.filter((_, idx) => idx !== i));
 
-  /* ── send ── */
-  const handleSendMessage = async (e) => {
-    e?.preventDefault();
-    if ((!inputMessage.trim() && chatFiles.length === 0) || isLoading) return;
-
-    let sessId = activeSessionId;
-    if (!sessId) {
-      sessId = createNewSession();
-    }
-
-    const ts = new Date().toISOString();
-    const userMsg = {
-      id: genId(),
-      sender: "user",
-      text: inputMessage.trim(),
-      files: chatFiles.map((f) => ({ name: f.name, type: f.type })),
-      timestamp: ts,
-    };
-
-    /* auto-title on first user message */
-    const currentMsgs = sessions.find((s) => s.id === sessId)?.messages ?? [];
-    const isFirstUserMsg = !currentMsgs.some((m) => m.sender === "user");
-    if (isFirstUserMsg) updateSessionTitle(sessId, deriveTitle(inputMessage));
-
-    updateSessionMessages(sessId, (prev) => [...prev, userMsg]);
-    const savedInput = inputMessage;
-    const savedFiles = [...chatFiles];
-    setInputMessage("");
-    setChatFiles([]);
-    setIsLoading(true);
-    abortRef.current = new AbortController();
-
-    try {
-      const token = localStorage.getItem("token");
-      const fd = new FormData();
-      fd.append("question", savedInput);
-      savedFiles.forEach((f) => fd.append("files", f));
-      const res = await axios.post(`${API_BASE}/notes/ask`, fd, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
-        },
-        signal: abortRef.current.signal,
-      });
-      const aiMsg = {
-        id: genId(),
-        sender: "ai",
-        text: res.data.answer || "Sorry, I couldn't generate an answer.",
-        timestamp: new Date().toISOString(),
-      };
-      updateSessionMessages(sessId, (prev) => [...prev, aiMsg]);
-    } catch (err) {
-      if (axios.isCancel(err) || err.name === "CanceledError") return;
-      updateSessionMessages(sessId, (prev) => [
-        ...prev,
-        {
-          id: genId(),
-          sender: "ai",
-          isError: true,
-          text: `⚠️ **Something went wrong**\n\n${err.response?.data?.error || err.message}\n\nPlease try again.`,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
-  const handlePromptClick = (text) => {
-    setInputMessage(text);
-    textareaRef.current?.focus();
-  };
-
-  /* ── clear session ── */
-  const handleClearConfirm = () => {
+  /* ── clear current session messages ── */
+  const handleClearConfirm = useCallback(async () => {
     setShowClearModal(false);
     if (!activeSessionId) return;
-    updateSessionMessages(activeSessionId, []);
-    updateSessionTitle(activeSessionId, "New Chat");
-  };
+    // Delete then re-create — simplest way to clear a session
+    await deleteSessionInDB(activeSessionId);
+    setActiveMessages([]);
+  }, [activeSessionId, deleteSessionInDB]);
 
   /* ── retry ── */
   const handleRetry = () => {
-    if (!activeSessionId) return;
-    const last = [...messages].reverse().find((m) => m.sender === "user");
+    const last = [...activeMessages].reverse().find((m) => m.role === "user");
     if (!last) return;
-    updateSessionMessages(activeSessionId, (prev) =>
-      prev.filter((m) => m.id !== last.id),
-    );
+    setActiveMessages((prev) => prev.filter((m) => m._id !== last._id));
     setInputMessage(last.text);
     textareaRef.current?.focus();
   };
 
-  const showEmpty = messages.length === 0;
-  const lastIsError = messages[messages.length - 1]?.isError;
-  const userMsgCount = messages.filter((m) => m.sender === "user").length;
+  /* ── derived ── */
+  const activeSession = sessions.find((s) => s._id === activeSessionId) ?? null;
+  const showEmpty = activeMessages.length === 0 && !messagesLoading;
+  const lastIsError = activeMessages[activeMessages.length - 1]?.isError;
+  const userMsgCount = activeMessages.filter((m) => m.role === "user").length;
 
-  /* ─────────────────────────────────────────────────────────────────────────
+  /* ────────────────────────────────────────────────────────────────────────────
      RENDER
-  ───────────────────────────────────────────────────────────────────────── */
+  ─────────────────────────────────────────────────────────────────────────── */
   return (
     <>
       {/* Backdrop */}
@@ -1542,7 +1758,7 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
           onMouseDown={startResizing}
         />
 
-        {/* History panel (absolute overlay inside sidebar) */}
+        {/* History panel overlay */}
         {showHistory && (
           <>
             <div
@@ -1557,22 +1773,17 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
             <HistoryPanel
               sessions={sessions}
               activeId={activeSessionId}
-              onSelect={(id) => {
-                setActiveSessionId(id);
-                setShowHistory(false);
-              }}
-              onNew={() => {
-                handleNewChat();
-                setShowHistory(false);
-              }}
-              onDelete={deleteSession}
-              onRename={(id, title) => updateSessionTitle(id, title)}
+              onSelect={handleSelectSession}
+              onNew={handleNewChat}
+              onDelete={deleteSessionInDB}
+              onRename={renameSessionInDB}
               onClose={() => setShowHistory(false)}
+              loading={historyLoading}
             />
           </>
         )}
 
-        {/* Modals */}
+        {/* Clear modal */}
         {showClearModal && (
           <Modal
             icon={
@@ -1592,9 +1803,9 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
                 <Trash2 size={22} style={{ color: "#ef4444" }} />
               </div>
             }
-            title="Clear this chat?"
-            desc="All messages in this session will be permanently deleted."
-            confirmLabel="Clear"
+            title="Delete this chat?"
+            desc="All messages in this conversation will be permanently deleted."
+            confirmLabel="Delete"
             confirmStyle={{
               background: "linear-gradient(135deg,#ef4444,#dc2626)",
               boxShadow: "0 4px 12px rgba(239,68,68,.3)",
@@ -1617,7 +1828,6 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
             gap: 8,
           }}
         >
-          {/* Left: history + logo + title */}
           <div
             style={{
               display: "flex",
@@ -1691,7 +1901,8 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
                   whiteSpace: "nowrap",
                 }}
               >
-                {activeSession?.title || "AI Assistant"}
+                {activeSession?.title ||
+                  (activeSessionId ? "Chat" : "AI Assistant")}
               </p>
               <p
                 style={{
@@ -1714,12 +1925,16 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
                     display: "inline-block",
                   }}
                 />
-                {isLoading ? "Thinking…" : "Online"}
+                {messagesLoading
+                  ? "Loading…"
+                  : isLoading
+                    ? "Thinking…"
+                    : "Online"}
               </p>
             </div>
           </div>
 
-          {/* Right: actions */}
+          {/* Right actions */}
           <div
             style={{
               display: "flex",
@@ -1728,7 +1943,6 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
               flexShrink: 0,
             }}
           >
-            {/* Msg badge */}
             {userMsgCount > 0 && (
               <span
                 style={{
@@ -1744,6 +1958,7 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
                 {userMsgCount}
               </span>
             )}
+
             {/* New chat */}
             <button
               title="New chat"
@@ -1774,6 +1989,7 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
             >
               <Plus size={14} />
             </button>
+
             {/* Retry on error */}
             {lastIsError && (
               <button
@@ -1796,40 +2012,40 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
                 <RotateCcw size={13} />
               </button>
             )}
-            {/* Clear */}
-            <button
-              title="Clear chat"
-              onClick={() => setShowClearModal(true)}
-              disabled={messages.length === 0}
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: 8,
-                border: "1px solid var(--border-color)",
-                background: "transparent",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "var(--text-secondary)",
-                transition: "all .18s",
-                opacity: messages.length === 0 ? 0.3 : 1,
-              }}
-              onMouseEnter={(e) => {
-                if (messages.length > 0) {
-                  e.currentTarget.style.borderColor = "#ef4444";
-                  e.currentTarget.style.color = "#ef4444";
+
+            {/* Clear/Delete */}
+            {activeSessionId && (
+              <button
+                title="Delete this chat"
+                onClick={() => setShowClearModal(true)}
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 8,
+                  border: "1px solid var(--border-color)",
+                  background: "transparent",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "var(--text-secondary)",
+                  transition: "all .18s",
+                }}
+                onMouseEnter={(e) => {
                   e.currentTarget.style.background = "rgba(239,68,68,.07)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--border-color)";
-                e.currentTarget.style.color = "var(--text-secondary)";
-                e.currentTarget.style.background = "transparent";
-              }}
-            >
-              <Trash2 size={13} />
-            </button>
+                  e.currentTarget.style.color = "#ef4444";
+                  e.currentTarget.style.borderColor = "rgba(239,68,68,.3)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.color = "var(--text-secondary)";
+                  e.currentTarget.style.borderColor = "var(--border-color)";
+                }}
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
+
             {/* Close */}
             <button
               title="Close"
@@ -1848,8 +2064,8 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
                 transition: "all .18s",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = "var(--text-primary)";
+                e.currentTarget.style.background = "rgba(239,68,68,.07)";
+                e.currentTarget.style.color = "#ef4444";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = "transparent";
@@ -1861,7 +2077,7 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
           </div>
         </div>
 
-        {/* ── MESSAGES ── */}
+        {/* ── MESSAGES AREA ── */}
         <div
           ref={messagesContainerRef}
           onScroll={handleScroll}
@@ -1869,147 +2085,156 @@ const AIAgentSidebar = ({ isOpen, onClose }) => {
           style={{
             flex: 1,
             overflowY: "auto",
-            overflowX: "hidden",
-            padding: showEmpty ? 0 : "18px 15px",
+            padding: "16px 14px",
             display: "flex",
             flexDirection: "column",
-            gap: 16,
-            position: "relative",
+            gap: 14,
+            scrollBehavior: "smooth",
           }}
         >
-          {showEmpty ? (
+          {messagesLoading ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flex: 1,
+                gap: 10,
+                color: "var(--text-tertiary)",
+                fontSize: 13,
+              }}
+            >
+              <Loader2 size={18} className="ai-spin" />
+              Loading conversation…
+            </div>
+          ) : showEmpty ? (
             <WelcomeScreen onPromptClick={handlePromptClick} />
           ) : (
-            messages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                msg={msg}
-                onCopy={handleCopy}
-                copiedId={copiedId}
-                getFullUrl={getFullUrl}
-              />
-            ))
+            <>
+              {activeMessages.map((msg) => (
+                <MessageBubble
+                  key={msg._id}
+                  msg={msg}
+                  onCopy={handleCopy}
+                  copiedId={copiedId}
+                  getFullUrl={getFullUrl}
+                />
+              ))}
+              {isLoading && <TypingIndicator />}
+            </>
           )}
-          {isLoading && <TypingIndicator />}
-          <div ref={messagesEndRef} style={{ height: 4 }} />
+          <div ref={messagesEndRef} />
         </div>
 
-        {/* Scroll-to-bottom btn */}
-        {showScrollBtn && !showEmpty && (
+        {/* ── SCROLL TO BOTTOM btn ── */}
+        {showScrollBtn && (
           <button
-            className="ai-scroll-pulse"
             onClick={() => scrollToBottom()}
+            className="ai-scroll-pulse"
             style={{
               position: "absolute",
-              bottom: 116,
-              right: 16,
-              width: 32,
-              height: 32,
-              borderRadius: 9,
-              border: "none",
-              background: "var(--accent-primary)",
-              color: "#fff",
+              bottom: 130,
+              right: 18,
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              border: "1.5px solid var(--border-color)",
+              background: "var(--bg-secondary)",
               cursor: "pointer",
-              zIndex: 5,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              boxShadow: "0 4px 14px rgba(99,102,241,.42)",
+              color: "var(--accent-primary)",
+              boxShadow: "0 3px 12px rgba(0,0,0,.12)",
+              zIndex: 10,
             }}
           >
             <ChevronDown size={16} />
           </button>
         )}
 
-        {/* ── FOOTER INPUT ── */}
+        {/* ── FILE PREVIEWS ── */}
+        {chatFiles.length > 0 && (
+          <div
+            style={{
+              padding: "8px 14px 0",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+              borderTop: "1px solid var(--border-color)",
+              background: "var(--bg-secondary)",
+              flexShrink: 0,
+            }}
+          >
+            {chatFiles.map((f, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "4px 9px",
+                  borderRadius: 8,
+                  background: "var(--bg-tertiary)",
+                  border: "1px solid var(--border-color)",
+                  fontSize: 11.5,
+                  fontWeight: 500,
+                  color: "var(--text-secondary)",
+                  maxWidth: 180,
+                }}
+              >
+                {f.type.startsWith("image/") ? (
+                  <ImageIcon size={12} />
+                ) : (
+                  <FileText size={12} />
+                )}
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    flex: 1,
+                  }}
+                >
+                  {f.name}
+                </span>
+                <button
+                  onClick={() => removeFile(i)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 0,
+                    display: "flex",
+                    color: "var(--text-tertiary)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── INPUT AREA ── */}
         <div
           style={{
-            padding: "10px 13px 13px",
+            padding: "10px 14px 12px",
             borderTop: "1px solid var(--border-color)",
             background: "var(--bg-secondary)",
             flexShrink: 0,
           }}
         >
-          {/* File chips */}
-          {chatFiles.length > 0 && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 6,
-                marginBottom: 8,
-              }}
-            >
-              {chatFiles.map((file, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 5,
-                    padding: "4px 9px 4px 7px",
-                    borderRadius: 7,
-                    background: "var(--bg-tertiary)",
-                    border: "1px solid var(--border-color)",
-                    color: "var(--text-secondary)",
-                    fontSize: 11.5,
-                    fontWeight: 500,
-                  }}
-                >
-                  {file.type.includes("image") ? (
-                    <ImageIcon
-                      size={12}
-                      style={{ color: "var(--accent-primary)" }}
-                    />
-                  ) : (
-                    <FileText
-                      size={12}
-                      style={{ color: "var(--accent-primary)" }}
-                    />
-                  )}
-                  <span
-                    style={{
-                      maxWidth: 100,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      color: "var(--text-primary)",
-                      fontSize: 11,
-                    }}
-                  >
-                    {file.name}
-                  </span>
-                  <button
-                    onClick={() => removeFile(i)}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      color: "var(--text-tertiary)",
-                      fontSize: 14,
-                      lineHeight: 1,
-                      padding: "0 2px",
-                      display: "flex",
-                      alignItems: "center",
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Input box */}
           <div
             style={{
               display: "flex",
-              gap: 7,
               alignItems: "flex-end",
-              padding: "7px 9px 7px 11px",
-              borderRadius: 14,
-              background: "var(--bg-tertiary)",
+              gap: 8,
+              padding: "8px 10px",
+              borderRadius: 13,
               border: "1.5px solid var(--border-color)",
+              background: "var(--bg-tertiary)",
               transition: "border-color .2s, box-shadow .2s",
             }}
             onFocusCapture={(e) => {

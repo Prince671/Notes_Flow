@@ -6,6 +6,8 @@ const notesRoute = require("./routes/notes.route");
 const authRoute = require("./routes/user.routes");
 const chatRoute = require("./routes/chat.route");
 const path = require("path");
+const chatRoutes = require("./routes/chat.route");
+
 
 const app = express();
 
@@ -19,6 +21,7 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use("/auth", authRoute);
 app.use("/notes", notesRoute);
 app.use("/chat", chatRoute);
+app.use("/chat", chatRoutes);
 
 // Start server after DB connection
 app.listen(3000, async () => {

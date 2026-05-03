@@ -4950,16 +4950,16 @@ const Notes = () => {
                     setCanvasEditIndex(null);
                   },
                 },
-                {
-                  icon: <Download size={17} />,
-                  title: "Export PDF",
-                  action: exportNotes,
-                },
-                {
-                  icon: <Upload size={17} />,
-                  title: "Import",
-                  action: () => document.getElementById("import-file").click(),
-                },
+                // {
+                //   icon: <Download size={17} />,
+                //   title: "Export PDF",
+                //   action: exportNotes,
+                // },
+                // {
+                //   icon: <Upload size={17} />,
+                //   title: "Import",
+                //   action: () => document.getElementById("import-file").click(),
+                // },
                 {
                   icon: showArchived ? (
                     <EyeOff size={17} />
