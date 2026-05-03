@@ -550,19 +550,30 @@ const WhiteCanvas = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    const rect = canvas.parentElement.getBoundingClientRect();
-    canvas.width = rect.width || 800;
-    canvas.height = rect.height || 500;
+    const parent = canvas.parentElement;
+    const rect = parent
+      ? parent.getBoundingClientRect()
+      : { width: 800, height: 500 };
+    const w = Math.max(rect.width || 800, 400);
+    const h = Math.max(rect.height || 500, 300);
+    canvas.width = w;
+    canvas.height = h;
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, w, h);
     if (existingCanvasUrl) {
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = () => {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
         doSaveHistory(ctx, canvas);
       };
-      img.onerror = () => doSaveHistory(ctx, canvas);
+      img.onerror = () => {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        doSaveHistory(ctx, canvas);
+      };
       img.src = existingCanvasUrl;
     } else {
       doSaveHistory(ctx, canvas);
@@ -573,6 +584,29 @@ const WhiteCanvas = ({
     const timeout = setTimeout(initCanvas, 50);
     return () => clearTimeout(timeout);
   }, [initCanvas]);
+
+  // Keyboard shortcuts inside canvas modal
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+        e.preventDefault();
+        undo();
+      } else if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key === "y" || (e.shiftKey && e.key === "z"))
+      ) {
+        e.preventDefault();
+        redo();
+      } else if (e.key === "Escape") {
+        if (textPos) {
+          setTextPos(null);
+          setTextInput("");
+        } else onClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [textPos, onClose]); // undo/redo are stable refs so omitting them is safe
 
   const doSaveHistory = (ctx, canvas) => {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -599,7 +633,8 @@ const WhiteCanvas = ({
     histRef.current.step -= 1;
     setHistoryStep(histRef.current.step);
     ctx.putImageData(histRef.current.history[histRef.current.step], 0, 0);
-    setShapes([]);
+    // Remove last committed shape if any
+    setShapes((prev) => (prev.length > 0 ? prev.slice(0, -1) : []));
     setSelectedShapeIdx(null);
   };
 
@@ -610,17 +645,19 @@ const WhiteCanvas = ({
     histRef.current.step += 1;
     setHistoryStep(histRef.current.step);
     ctx.putImageData(histRef.current.history[histRef.current.step], 0, 0);
-    setShapes([]);
     setSelectedShapeIdx(null);
   };
 
   const clearCanvas = () => {
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     setShapes([]);
     setSelectedShapeIdx(null);
+    setTextPos(null);
+    setTextInput("");
     saveHistory();
   };
 
@@ -883,18 +920,22 @@ const WhiteCanvas = ({
   };
 
   const handleSave = async () => {
-    // Flatten shapes onto canvas before saving
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext("2d");
+    // Restore base pixel data then flatten all shapes on top
     if (histRef.current.step >= 0) {
       ctx.putImageData(histRef.current.history[histRef.current.step], 0, 0);
     }
     redrawShapes(ctx, canvas, shapes);
     setSaving(true);
     try {
-      const blob = await new Promise((resolve) =>
-        canvas.toBlob(resolve, "image/png"),
-      );
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((b) => {
+          if (b) resolve(b);
+          else reject(new Error("Canvas toBlob returned null"));
+        }, "image/png");
+      });
       await onSave(blob, canvasTitle);
     } catch (err) {
       console.error("Canvas save error:", err);
@@ -1288,7 +1329,15 @@ const WhiteCanvas = ({
               onMouseDown={startDraw}
               onMouseMove={draw}
               onMouseUp={endDraw}
-              onMouseLeave={endDraw}
+              onMouseLeave={(e) => {
+                // Only end freehand drawing on mouse leave, not shapes (shapes need mouseUp)
+                if (isDrawing && (tool === "pen" || tool === "eraser")) {
+                  endDraw(e);
+                }
+                if (isDraggingShape) {
+                  setIsDraggingShape(false);
+                }
+              }}
               onTouchStart={startDraw}
               onTouchMove={draw}
               onTouchEnd={endDraw}
@@ -1721,7 +1770,22 @@ const NoteCard = ({
               className="note-prose text-sm leading-relaxed"
               style={{ color: "var(--text-secondary)" }}
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  a: ({ href, children }) => (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ color: "var(--accent-primary)" }}
+                    >
+                      {children}
+                    </a>
+                  ),
+                }}
+              >
                 {note.description || ""}
               </ReactMarkdown>
             </div>
@@ -3033,7 +3097,9 @@ const StatsBar = ({ notes }) => {
   const total = notes.length;
   const starred = notes.filter((n) => n.starred).length;
   const archived = notes.filter((n) => n.archived).length;
-  const withCanvas = notes.filter((n) => n.canvasImage).length;
+  const withCanvas = notes.filter(
+    (n) => n.canvases?.length > 0 || !!n.canvasImage,
+  ).length;
   const high = notes.filter((n) => n.priority === "high").length;
 
   const stats = [
@@ -3538,7 +3604,7 @@ const Notes = () => {
       const res = await axios.post(`${API_BASE}/add`, formData, {
         headers: {
           Authorization: `Bearer ${token}`,
-          // Content-Type omitted — browser auto-sets multipart boundary (FIX 3)
+          "Content-Type": "multipart/form-data",
         },
       });
       const rawNote = res.data?.note ?? res.data ?? null;
@@ -3552,7 +3618,10 @@ const Notes = () => {
       setPriority("medium");
       setSelectedFiles([]);
     } catch (err) {
-      addToast(`Error: ${err.response?.data?.error || err.message}`, "error");
+      addToast(
+        `Error adding note: ${err.response?.data?.error || err.message}`,
+        "error",
+      );
     } finally {
       setAdding(false);
       setAddingSkeletonCount(0);
@@ -3587,7 +3656,7 @@ const Notes = () => {
         {
           headers: {
             Authorization: `Bearer ${token}`,
-            // Content-Type omitted — browser auto-sets multipart boundary (FIX 3)
+            "Content-Type": "multipart/form-data",
           },
         },
       );
@@ -4400,10 +4469,12 @@ const Notes = () => {
         formData.append("priority", "medium");
         formData.append("tags", "imported");
         formData.append("files", file);
+        // ── FIX: import into the currently open folder ──
+        if (activeFolderId) formData.append("folderId", activeFolderId);
         const res = await axios.post(`${API_BASE}/add`, formData, {
           headers: {
             Authorization: `Bearer ${token}`,
-            // Content-Type omitted — browser auto-sets multipart boundary (FIX 3)
+            "Content-Type": "multipart/form-data",
           },
         });
         const rawNote = res.data?.note ?? res.data ?? null;
@@ -4430,6 +4501,8 @@ const Notes = () => {
               normalizeNote({
                 ...n,
                 _id: n._id ?? `import-${Date.now()}-${Math.random()}`,
+                // ── FIX: import into the currently open folder ──
+                folderId: activeFolderId ?? n.folderId ?? null,
               }),
             ),
             ...prev,
@@ -4452,7 +4525,6 @@ const Notes = () => {
       formData.append("canvasImage", blob, "canvas.png");
       if (canvasNoteId) {
         if (savedCanvasName) formData.append("canvasName", savedCanvasName);
-        // Pass canvas index so backend knows which canvas slot to update
         if (canvasEditIndex !== null)
           formData.append("canvasIndex", canvasEditIndex);
         const res = await axios.put(
@@ -4461,7 +4533,7 @@ const Notes = () => {
           {
             headers: {
               Authorization: `Bearer ${token}`,
-              // Content-Type omitted — browser auto-sets multipart boundary (FIX 3)
+              "Content-Type": "multipart/form-data",
             },
           },
         );
@@ -4471,28 +4543,41 @@ const Notes = () => {
             prev.map((n) => {
               if (n._id !== canvasNoteId) return n;
               const norm = normalizeNote(updated);
-              // If backend doesn't return canvases array, build it client-side
-              if (!norm.canvases || norm.canvases.length === 0) {
-                const existing = n.canvases ? [...n.canvases] : [];
-                const newEntry = {
-                  url: norm.canvasImage || n.canvasImage,
-                  name: savedCanvasName || "Canvas Drawing",
-                };
-                if (
-                  canvasEditIndex !== null &&
-                  canvasEditIndex < existing.length
-                ) {
-                  existing[canvasEditIndex] = newEntry;
-                } else {
-                  existing.push(newEntry);
-                }
-                return { ...norm, canvases: existing };
+              // Backend returned canvases array — use it directly
+              if (norm.canvases && norm.canvases.length > 0) return norm;
+              // Backend didn't return canvases[] — build it client-side
+              // Get the existing canvases from the current note state (before update)
+              const existingCanvases =
+                n.canvases && n.canvases.length > 0
+                  ? [...n.canvases]
+                  : n.canvasImage
+                    ? [
+                        {
+                          url: n.canvasImage,
+                          name: n.canvasName || "Canvas Drawing",
+                        },
+                      ]
+                    : [];
+              const newEntry = {
+                url: norm.canvasImage || updated.canvasImage,
+                name: savedCanvasName || "Canvas Drawing",
+              };
+              if (
+                canvasEditIndex !== null &&
+                canvasEditIndex < existingCanvases.length
+              ) {
+                // Replace existing canvas at index
+                existingCanvases[canvasEditIndex] = newEntry;
+              } else {
+                // Append new canvas
+                existingCanvases.push(newEntry);
               }
-              return norm;
+              return { ...norm, canvases: existingCanvases };
             }),
           );
         }
       } else {
+        // Standalone canvas — create a new note
         const cName = savedCanvasName || canvasName || "Canvas Drawing";
         formData.append("title", cName);
         formData.append("desc", "Created with White Canvas");
@@ -4502,7 +4587,7 @@ const Notes = () => {
         const res = await axios.post(`${API_BASE}/add`, formData, {
           headers: {
             Authorization: `Bearer ${token}`,
-            // Content-Type omitted — browser auto-sets multipart boundary (FIX 3)
+            "Content-Type": "multipart/form-data",
           },
         });
         const rawNote = res.data?.note ?? res.data;
@@ -4515,7 +4600,10 @@ const Notes = () => {
       setCanvasEditIndex(null);
       setCanvasName("Canvas Drawing");
     } catch (err) {
-      addToast("Canvas save failed", "error");
+      addToast(
+        `Canvas save failed: ${err.response?.data?.error || err.message}`,
+        "error",
+      );
     }
   };
 
@@ -4909,7 +4997,10 @@ const Notes = () => {
                   background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
                 }}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white cursor-pointer transition-all shadow-[0_4px_14px_rgba(99,102,241,0.4)] hover:-translate-y-0.5 hover:shadow-[0_6px_20px_rgba(99,102,241,0.5)] active:translate-y-0 border-none"
-                onClick={() => setShowForm(!showForm)}
+                onClick={() => {
+                  if (!showForm) setSelectedFiles([]);
+                  setShowForm(!showForm);
+                }}
               >
                 <Plus size={17} /> New Note
               </button>
@@ -5258,10 +5349,24 @@ const Notes = () => {
                     <input
                       type="file"
                       multiple
-                      accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,video/*,audio/*"
-                      onChange={(e) =>
-                        setSelectedFiles(Array.from(e.target.files))
-                      }
+                      key={selectedFiles.length === 0 ? "reset" : "active"}
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/*,video/*,audio/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                      onChange={(e) => {
+                        const newFiles = Array.from(e.target.files);
+                        if (newFiles.length > 0) {
+                          setSelectedFiles((prev) => {
+                            const existingNames = new Set(
+                              prev.map((f) => f.name + f.size),
+                            );
+                            const unique = newFiles.filter(
+                              (f) => !existingNames.has(f.name + f.size),
+                            );
+                            return [...prev, ...unique];
+                          });
+                        }
+                        // Reset input so same file can be re-added after removal
+                        e.target.value = "";
+                      }}
                       className="hidden"
                       id="note-files"
                     />
@@ -5279,7 +5384,7 @@ const Notes = () => {
                         style={{ color: "var(--accent-primary)" }}
                       />
                       {selectedFiles.length > 0
-                        ? `${selectedFiles.length} file(s) selected — click to change`
+                        ? `${selectedFiles.length} file(s) selected — click to add more`
                         : "Attach files (images, PDFs, docs, etc.)"}
                     </label>
                   </div>
@@ -6089,10 +6194,25 @@ const Notes = () => {
                   <input
                     type="file"
                     multiple
-                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,video/*,audio/*"
-                    onChange={(e) =>
-                      setSelectedFiles(Array.from(e.target.files))
+                    key={
+                      selectedFiles.length === 0 ? "edit-reset" : "edit-active"
                     }
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,image/*,video/*,audio/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    onChange={(e) => {
+                      const newFiles = Array.from(e.target.files);
+                      if (newFiles.length > 0) {
+                        setSelectedFiles((prev) => {
+                          const existingNames = new Set(
+                            prev.map((f) => f.name + f.size),
+                          );
+                          const unique = newFiles.filter(
+                            (f) => !existingNames.has(f.name + f.size),
+                          );
+                          return [...prev, ...unique];
+                        });
+                      }
+                      e.target.value = "";
+                    }}
                     className="hidden"
                     id="edit-note-files"
                   />
@@ -6107,7 +6227,7 @@ const Notes = () => {
                   >
                     <Upload size={16} />
                     {selectedFiles.length > 0
-                      ? `${selectedFiles.length} new file(s) selected`
+                      ? `${selectedFiles.length} new file(s) selected — click to add more`
                       : "Add more files"}
                   </label>
                   {/* New file previews */}
